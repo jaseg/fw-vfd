@@ -2,6 +2,10 @@
 #include <avr/io.h>
 #include <util/delay.h>
 #include <avr/pgmspace.h>
+#include <avr/interrupt.h>
+#include <string.h>
+
+#include "escape_handling.h"
 
 
 extern const uint8_t font[95*5] PROGMEM;
@@ -69,17 +73,43 @@ void grid_strobe(uint8_t idx) {
     PORTD = v;
 }
 
-void vfd_latch_data(uint8_t *data PROGMEM, uint8_t cursor) {
-    PORTA  = pgm_read_byte(data+0);
+uint8_t blink_counter = 0;
+
+void vfd_latch_data(const uint8_t *data PROGMEM, uint8_t style) {
+    char v;
+    char inv = !!(style & STYLE_INVERT);
+    if (((style & STYLE_BLINK_SLOW) && (blink_counter&0x40))
+    || (!(style & STYLE_BLINK_SLOW) && (style & STYLE_BLINK_FAST) && (blink_counter&0x10))) {
+        PORTA = 0;
+        grid_strobe(0);
+        grid_strobe(1);
+        grid_strobe(2);
+        grid_strobe(3);
+        grid_strobe(4);
+        mux_pulse(7);
+        return;
+    }
+
+    v = pgm_read_byte(data+0);
+    PORTA  = inv ? ~v : v;
     grid_strobe(0);
-    PORTA  = pgm_read_byte(data+1);
+
+    v = pgm_read_byte(data+1);
+    PORTA  = inv ? ~v : v;
     grid_strobe(1);
-    PORTA  = pgm_read_byte(data+2);
+
+    v = pgm_read_byte(data+2) | (style & STYLE_STRIKETHROUGH ? 0x67 : 0x00);
+    PORTA  = inv ? ~v : v;
     grid_strobe(2);
-    PORTA  = pgm_read_byte(data+3) | (cursor ? 0x80 : 0x00);
+
+    v = pgm_read_byte(data+3) | (style & STYLE_UNDERLINE ? 0x80 : 0x00);
+    PORTA  = inv ? ~v : v;
     grid_strobe(3);
-    PORTA  = pgm_read_byte(data+4);
+
+    v = pgm_read_byte(data+4);
+    PORTA  = inv ? ~v : v;
     grid_strobe(4);
+
     mux_pulse(7);
 }
 
@@ -92,6 +122,51 @@ void vfd_grid_reset(void) {
 
 void vfd_grid_next(void) {
     mux_pulse(4);
+}
+
+
+/*              |.........#.........#.........#.........#| 40 chars */
+char text[41] = "VFD firmware v0.1 initialized           ";
+unsigned char rxpos = 0;
+unsigned char escape_rxpos = 0;
+char escape_buf[41];
+uint8_t style[41] = {{0}};
+uint8_t current_style = {0};
+unsigned char state;
+
+#define STATE_ESCAPED       0x01
+
+ISR (USART_RXC_vect) {
+    char ch = UDR;
+    if (state & STATE_ESCAPED) {
+        if (escape_rxpos < sizeof(escape_buf)-1)
+            escape_buf[escape_rxpos++] = ch;
+        if ((ch > '9' && ch != ';' && ch != '[') || ch < '0') {
+            escape_buf[escape_rxpos] = '\0';
+            uint8_t rv = parse_escape_sequence(escape_buf, escape_rxpos, current_style);
+            if (!(rv & STYLE_ERROR))
+                current_style = rv;
+            state &= ~STATE_ESCAPED;
+            escape_rxpos = 0;
+        }
+    } else {
+        if (ch == '\r') {
+            rxpos = 0;
+            memset(text, ' ', sizeof(text));
+            memset(style, 0, sizeof(text));
+        } else if (ch == '\n') {
+            /* ignore */
+        } else if (ch == '\e') {
+            state |= STATE_ESCAPED;
+            escape_rxpos = 0;
+        } else {
+            if (rxpos < sizeof(text)) {
+                text[rxpos] = ch;
+                style[rxpos] = current_style;
+                rxpos++;
+            }
+        }
+    }
 }
 
 
@@ -111,23 +186,26 @@ int main(void) {
     uint16_t ubrr_val = F_CPU/16/(BAUDRATE-1);
     UBRRH  = ubrr_val>>8;
     UBRRL  = ubrr_val&0xff;
-    UCSRB = (1<<TXEN);
+    UCSRB = (1<<TXEN) | (1<<RXEN) | (1<<RXCIE);
     UCSRC = (1<<URSEL) | (3<<UCSZ0);
+
+    sei();
 
     while (23) {
 
         set_led(LED_ERROR, 1);
 
         vfd_grid_reset();
-        /*           |.........#.........#.........#.........#| 40 chars */
-//      char *text = "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!";
-        char *text = "ABCD 1234|blank_=+@!.*Test()+{&%$EFGHIJ}";
-        uint8_t cpos = 5;
         for (uint8_t i=0; i<40; i++) {
             char ch = text[39-i];
-            vfd_latch_data(font+(ch-32)*5, cpos == (39-i));
-            _delay_us(300);
+            vfd_latch_data(font+(ch-32)*5, style[39-i]);
+            if (style[i] & STYLE_BOLD)
+                _delay_us(1000);
+            else
+                _delay_us(300);
             vfd_grid_next();
         }
+
+        blink_counter++;
     }
 }
