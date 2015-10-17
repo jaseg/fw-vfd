@@ -8,7 +8,7 @@
 #include "escape_handling.h"
 
 
-extern const uint8_t font[95*5] PROGMEM;
+extern const uint8_t font[102*5] PROGMEM;
 
 
 #define PULSE_LENGTH_US 10
@@ -197,7 +197,7 @@ int main(void) {
 
         vfd_grid_reset();
         for (uint8_t i=0; i<40; i++) {
-            char ch = text[39-i];
+            uint8_t ch = text[39-i];
             vfd_latch_data(font+(ch-32)*5, style[39-i]);
             if (style[i] & STYLE_BOLD)
                 _delay_us(1000);
