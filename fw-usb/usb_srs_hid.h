@@ -68,8 +68,10 @@
 
 volatile uint8_t blinkflag;        // Blinken ein/aus
 
-volatile uint8_t Ep1_buf[64];     // Buffer für zu sendende Daten (zum PC)
-volatile uint8_t Ep2_buf[64];     // Buffer für ankommende Daten (vom PC)
+volatile uint8_t Ep1_buf[64];
+volatile uint8_t Ep2_buf[64];
+volatile uint8_t Ep3_buf[64];
+volatile uint8_t Ep4_buf[64];
                                   // Erstes Byte res. für Anzahl der Datenbytes
 volatile uint8_t Ep1_flag;        // Flag Senden zum PC
 volatile uint8_t Ep2_flag;        // Flag Empfang vom PC
@@ -82,14 +84,12 @@ volatile uint8_t Ep2_cnt;         // Zähler Empfang vom PC
                     4 = 128 Bytes (nur EP1), 5 = 256 Bytes (EP1), andere reserv.
     ba BANK:        0 = 1 Bank, 1 = 2 Baenke, andere res. */
 
-// Endpoint 0, Control OUT, 8 byte FIFO
 #define Ep0_ty 0    //Control
 #define Ep0_di 0    //OUT    
 #define Ep0_si 0    //8 Bytes    
 #define Ep0_ba 0    //1 Bank    
 #define Ep0_fs 8    
 
-// Endpoint 1, Interrupt IN, 64 byte FIFO
 #define Ep1_ty 3    //Interrupt
 #define Ep1_di 1    //INT
 #define Ep1_si 3    //64 Bytes  
@@ -97,7 +97,6 @@ volatile uint8_t Ep2_cnt;         // Zähler Empfang vom PC
 #define Ep1_fs_l 64 
 #define Ep1_fs_h 0 
 
-// Endpoint 2, Interrupt OUT, 64 byte
 #define Ep2_ty 3    //Interrupt
 #define Ep2_di 0    //IN
 #define Ep2_si 3    //64 Byte    
@@ -105,23 +104,19 @@ volatile uint8_t Ep2_cnt;         // Zähler Empfang vom PC
 #define Ep2_fs_l 64 
 #define Ep2_fs_h 0 
 
-////  EP3... hier erweitern
+#define Ep3_ty 2    //Bulk
+#define Ep3_di 1    //IN
+#define Ep3_si 3    //64 Byte    
+#define Ep3_ba 0    //1 Bank
+#define Ep3_fs_l 64 
+#define Ep3_fs_h 0 
 
-//weitere globale Konstanten
-//bei Erweiterung folgende beiden Konstanten anpassen
-#define Nr_eps 2                     //Zahl der benutzten EP (ohne EP0)
-//Annahme, dass wTotallength kleiner als 256 Byte ist!
-#define wTotalLength 9+9+9+(7*Nr_eps)
-
-
-#if defined MOUSE
-#define HidDesLength 52
-#elif defined KEYBOARD
-#define HidDesLength 59
-#else
-#define HidDesLength 32
-#endif
-
+#define Ep4_ty 2    //Bulk
+#define Ep4_di 0    //OUT
+#define Ep4_si 3    //64 Byte    
+#define Ep4_ba 0    //1 Bank
+#define Ep4_fs_l 64 
+#define Ep4_fs_h 0 
 
 // Status codes
 #define Lang_i     0   // LanguageDescriptorIndex
