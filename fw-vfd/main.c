@@ -129,8 +129,8 @@ void vfd_grid_next(void) {
 char text[41] = "VFD firmware v0.1 initialized           ";
 unsigned char rxpos = 0;
 unsigned char escape_rxpos = 0;
-char escape_buf[41];
-uint8_t style[41] = {{0}};
+volatile char escape_buf[41];
+volatile uint8_t style[41] = {{0}};
 uint8_t current_style = {0};
 unsigned char state;
 
@@ -196,13 +196,10 @@ int main(void) {
         set_led(LED_ERROR, 1);
 
         vfd_grid_reset();
-        for (uint8_t i=0; i<40; i++) {
-            uint8_t ch = text[39-i];
-            vfd_latch_data(font+(ch-32)*5, style[39-i]);
-            if (style[i] & STYLE_BOLD)
-                _delay_us(1000);
-            else
-                _delay_us(300);
+        for (uint8_t i=39; i<40; i--) {
+            uint8_t ch = text[i];
+            vfd_latch_data(font+(ch-32)*5, style[i]);
+            _delay_us(300);
             vfd_grid_next();
         }
 
