@@ -2,7 +2,7 @@
 MCU = atmega8u2
 F_CPU = 16000000
 
-CFLAGS := -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL -std=gnu99 -Wall -funsigned-char -funsigned-bitfields -fpack-struct -fshort-enums
+CFLAGS := -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL -O2 -std=gnu99 -Wall -funsigned-char -funsigned-bitfields -fpack-struct -fshort-enums
 
 all: main.elf
 

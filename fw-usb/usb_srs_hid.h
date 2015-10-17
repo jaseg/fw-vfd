@@ -66,17 +66,14 @@
 #endif
 #endif
 
-volatile uint8_t blinkflag; // Blinken ein/aus
+volatile uint8_t ep1_buf[64]; /* TODO about 8 bytes should be sufficient here. Check USB FIFO handling and call sites. */
+volatile uint8_t ep1_cnt;  // Zähler Senden zum PC
 
-volatile uint8_t Ep1_buf[64];
-volatile uint8_t Ep2_buf[64];
-volatile uint8_t Ep3_buf[64];
-volatile uint8_t Ep4_buf[64];
-// Erstes Byte res. für Anzahl der Datenbytes
-volatile uint8_t Ep1_flag; // Flag Senden zum PC
-volatile uint8_t Ep2_flag; // Flag Empfang vom PC
-volatile uint8_t Ep1_cnt;  // Zähler Senden zum PC
-volatile uint8_t Ep2_cnt;  // Zähler Empfang vom PC
+volatile uint8_t ep2_buf[64];
+volatile uint8_t ep2_cnt;  // Zähler Empfang vom PC
+
+volatile uint8_t ep3_buf[64];
+volatile uint8_t ep4_buf[64];
 
 typedef enum {
     Lang_i, /* LanguageDescriptorIndex */
@@ -86,15 +83,11 @@ typedef enum {
     NUM_DESCS
 } desc_index_enum;
 
-// Basisfunktionen
 void usb_init_device(void);
 void usb_init_endpoint(uint8_t ep, uint8_t type, uint8_t direction, uint8_t size, uint8_t banks);
+void usb_send_descriptor(const uint8_t *d, uint8_t len);
 
-// Enumeration
 void usb_ep0_setup(void);
-void usb_send_descriptor(uint8_t de[], uint8_t db);
-
-// Anwendungskommunikation
 void usb_ep1_in(void);
 void usb_ep2_out(void);
 

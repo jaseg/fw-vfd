@@ -23,30 +23,47 @@
 #include <avr/io.h>
 #include <util/delay.h>
 #include <avr/interrupt.h>
+#include <string.h>
 #include "usb_srs_hid.h"
 
-void sendkey(uint8_t mod, uint8_t code) {
-    Ep1_cnt = 3; // 3 bytes
-    cli();
-    // 1 Byte = key modifier Byte (7-0):
-    // R GUI, R ALT, R SHIFT, R CTRL,L GUI, L ALT, L SHIFT, L CTRL
-    Ep1_buf[0] = mod;  // modifier byte
-    Ep1_buf[1] = 0x00; // reserved byte = 0
-    Ep1_buf[2] = code; // scan code (up to 6 keys)
-    sei();
-    Ep1_flag = 1;  // set EP1 flag
-    _delay_ms(50); // higher than bInterval in Endpoint Descriptor!
-    Ep1_cnt = 3;   // 3 bytes
-    cli();
-    Ep1_buf[0] = 0x00; // modifier byte
-    Ep1_buf[1] = 0x00; // reserved byte = 0
-    Ep1_buf[2] = 0x00; ////stop pressing key
-    sei();
-    Ep1_flag = 1; // set EP1 flag
-    _delay_ms(3); // higher than bInterval in Endpoint Descriptor!
+void key_down(uint8_t mod, uint8_t code) {
+    uint8_t i;
+
+    ep1_buf[0] = mod;  /* modifiers: R GUI, R ALT, R SHIFT, R CTRL,L GUI, L ALT, L SHIFT, L CTRL */
+
+    for (i=2; i<8; i++) {
+        if (!ep1_buf[i]) {
+            ep1_buf[i] = code;
+            ep1_cnt = i+1;
+            return;
+        }
+    }
+    /* If control flow reaches this point, there are more than 6 keys pressed. We don't have any provisions for that and
+     * just ignore any additional keys pressed. */
+}
+
+void key_release(uint8_t mod, uint8_t code) {
+    uint8_t i;
+
+    ep1_buf[0] = mod; /* modifiers */
+
+    /* find the entry in the current buffer, remove it and shift up any following entries. */
+    for (i=2; i<8; i++)
+        if (ep1_buf[i] == code)
+            break;
+    for (; i<8; i++) {
+        uint8_t next = ep1_buf[i+1];
+        ep1_buf[i] = next;
+        if (!next) { /* will always happen at some iteration */
+            ep1_cnt = i;
+        }
+    }
 }
 
 int main(void) {
     usb_init_device();
+    memset((void *)ep1_buf, 0, sizeof(ep1_buf));
+    sei();
+
     while(23);
 }

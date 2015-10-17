@@ -20,17 +20,19 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
-#include <stdint.h>
 #include <avr/pgmspace.h>
 #include <avr/interrupt.h>
+#include <stdint.h>
 #include "usb_srs_hid.h"
+
+#define UNUSED(x) (void)(x)
 
 
 ISR(USB_GEN_vect) {
     if (UDINT & (1 << EORSTI)) { // End Of ReSeT?
-        CBI(UDINT, EORSTI);      // sperre EORSTI
+        UDINT &= ~(1<<EORSTI);      // sperre EORSTI
         usb_init_endpoint(0, 0, 0, 0, 0); /* control out, 8 bytes, 1 bank */
-        SBI(UEIENX, RXSTPE);
+        UEIENX |= (1<<RXSTPE);
     }
 }
 
@@ -67,62 +69,51 @@ ISR(USB_COM_vect) {
 
 void usb_init_device(void) {
 #if defined(__AVR_ATmega32U4__)
-    UHWCON = (1 << UVREGE);     // Regelkreis zur Versorgung der D+ und D- -Leitung einschalten
+    UHWCON = (1<<UVREGE); /* enable usb voltage regulator */
 #endif
 #if defined(__AVR_AT90USB1287__)// Der ATMEL Bootloader nutzt einige Interrupts
-    USBCON = (1 << FRZCLK);
+    USBCON = (1<<FRZCLK);
     OTGIEN = 0;                 // Deaktiviere diese Interrupts damit sauberer Start
-    UDIEN = 0;
-    UHIEN = 0;
+    UDIEN  = 0;
+    UHIEN  = 0;
     UEIENX = 0;
     UPIENX = 0;
-    UHWCON = (1 << UIMOD);      // Enable Device Modus und Regelkreis zur Versorgung
-    UHWCON =
-        ((1 << UIMOD) | (1 << UVREGE));                 // der D+ und D- Leitung einschalten
+    UHWCON = (1<<UIMOD);        // Enable Device Modus und Regelkreis zur Versorgung
+    UHWCON = (1<<UIMOD) | (1<<UVREGE);                 // der D+ und D- Leitung einschalten
 #endif
 #if defined(__AVR_AT90USB162__) || defined(__AVR_ATmega32U2__) || defined(__AVR_ATmega8U2__)
-    USBCON =
-        ((1 << USBE) | (1 << FRZCLK));                  // USB Sender/Empf. und Takt einschalten
+    USBCON = (1<<USBE) | (1<<FRZCLK);
 #else
-    USBCON =
-        ((1 << USBE) | (1 << FRZCLK) | (1 << OTGPADE)); // USB Sender/Empf., Takt und VBUS-Leitung einschalten
+    USBCON = (1<<USBE) | (1<<FRZCLK) | (1<<OTGPADE);
 #endif
-    USBCON &= ~(1 << FRZCLK);   // FRZCLK=0, noetig, da sonst kein WAKEUP Interrupt
-    USBCON |= (1 << FRZCLK);    // FRZCLK=1 Strom sparen
-    // Starte PLL
+    /* toggle FRZCLK to wake up module */
+    USBCON &= ~(1<<FRZCLK);
+    USBCON |= (1<<FRZCLK);
+    /* start USB PLL */
 #if defined(__AVR_ATmega8U2__)
-    PLLCSR = (1<<2); /* my headers are strange */
+    PLLCSR = 0x04; /* my headers are strange */
 #else
-    PLLCSR = PLLPRE;            // PLL Vorteiler fuer den Quarz (siehe Zuweisungen)
+    PLLCSR = PLLPRE;
 #endif
-    PLLCSR |= (1 << PLLE);      // starte PLL (PLLEnable=1)
+    PLLCSR |= (1<<PLLE);
 
-    while (!(PLLCSR & (1 << PLOCK)))
-        ; // Warte bis PLOCK = 1 (PLL eingerastet)
+    while (!(PLLCSR & (1<<PLOCK)))
+        ; /* wait for PLL to lock */
 
-    USBCON &= ~(1 << FRZCLK);   // FRZCLK=0, aktiviere den Takt
-    UDCON = 0;                  // Attach: Verbinde das Device
-    UDIEN = (1 << EORSTE);      // erlaube End Of ReSeT Interrupt
+    USBCON &= ~(1<<FRZCLK); /* enable clock */
+    UDCON   = 0;            /* attach device */
+    UDIEN   = (1<<EORSTE);  /* EndOfReSeT interrupt */
 
-    memset(Ep1_buf, 0, sizeof(Ep1_buf));
-    memset(Ep2_buf, 0, sizeof(Ep1_buf));
-    memset(Ep3_buf, 0, sizeof(Ep1_buf));
-    memset(Ep4_buf, 0, sizeof(Ep1_buf));
-
-    Ep1_flag = 0;
-    Ep2_flag = 0;
-    Ep1_cnt = 0;
-    Ep2_cnt = 0;
-
-    sei();
+    ep1_cnt = 0;
+    ep2_cnt = 0;
 }
 
 void usb_init_endpoint(uint8_t ep, uint8_t type, uint8_t direction, uint8_t size, uint8_t banks) {
     UENUM = ep;
-    SBI(UECONX, EPEN);
+    UECONX |= (1<<EPEN);
     UECFG0X = ((type<<6) | direction);
     UECFG1X = ((size<<4) | (banks<<2));
-    SBI(UECFG1X, ALLOC);
+    UECFG1X |= (1<<ALLOC);
 }
 
 void usb_ep0_setup(void) {
@@ -284,8 +275,8 @@ void usb_ep0_setup(void) {
         0xC0        // End_Collection
     };
 
-    struct {
-        uint8_t *desc;
+    const struct {
+        const uint8_t *desc;
         uint8_t size;
     } descs[NUM_DESCS] = {
         [Lang_i] = {.desc=lang_des, .size=sizeof(lang_des)},
@@ -303,27 +294,29 @@ void usb_ep0_setup(void) {
     wLength_l     = UEDATX;
     wLength_h     = UEDATX;
 
-    CBI(UEINTX, RXSTPI); //'ACK SU-Paket (ISR abschliessen und FIFO löschen)
+    UNUSED(wIndex_l);
+    UNUSED(wIndex_h);
+
+    UEINTX &= ~(1<<RXSTPI); //'ACK SU-Paket (ISR abschliessen und FIFO löschen)
 
     // Type = Standard Device Request? (nur Device oder Interface)
-    if ((bmRequestType & 0x60) == 0 || (bmRequestType & 0x60) == 1) {
+    if ((bmRequestType&0x60) == 0 || (bmRequestType&0x60) == 1) {
         switch (bRequest) {
         case 0x00: // GET_STATUS 3 Phasen (optional kann geloescht werden!)
-            UEDATX = 0;
-            UEDATX = 0;
-            CBI(UEINTX, TXINI); // Daten absenden (ACK) und FIFO löschen
+            UEDATX  = 0;
+            UEDATX  = 0;
+            UEINTX &= ~(1<<TXINI); // Daten absenden (ACK) und FIFO löschen
             while (!(UEINTX & (1 << RXOUTI)))
                 ;                // Warten bis ZLP vom PC
-            CBI(UEINTX, RXOUTI); // Flag loeschen
+            UEINTX &= ~(1<<RXOUTI); // Flag loeschen
             break;
 
         case 0x05: // SET_ADDRESS 2 Phasen (keine Datenphase)
-            UDADDR = (wValue_l & 0x7F); // Speichere Adresse UADD (ADDEN = 0)
-            CBI(UEINTX,
-                TXINI); // IN Paket (ZLP) senden, EP Bank loeschen 22.12 S272
+            UDADDR  = (wValue_l & 0x7F); // Speichere Adresse UADD (ADDEN = 0)
+            UEINTX &= ~(1<<TXINI); // IN Paket (ZLP) senden, EP Bank loeschen 22.12 S272
             while (!(UEINTX & (1 << TXINI)))
                 ; // Warte bis fertig (EP Bank wieder frei)
-            SBI(UDADDR, ADDEN); // Adresse aktivieren
+            UDADDR |= (1<<ADDEN); // Adresse aktivieren
             break;
 
         case 0x06: /* GET_DESCRIPTOR (3-phase transfer) */
@@ -360,9 +353,9 @@ void usb_ep0_setup(void) {
 
         case 0x09: /* SET_CONFIGURATION (2-phase; no data phase) */
             for (uint8_t i=4; i; i--) { /* backwards due to memory assignment */
-                UENUM = i;
-                CBI(UECONX, EPEN);
-                CBI(UECFG1X, ALLOC);
+                UENUM    = i;
+                UECONX  &= ~(1<<EPEN);
+                UECFG1X &= ~(1<<ALLOC);
             }
 
             usb_init_endpoint(1, 3, 1, 3, 0); /* interrupt in, 64 bytes, 1 bank */
@@ -370,80 +363,75 @@ void usb_ep0_setup(void) {
             usb_init_endpoint(3, 2, 1, 3, 0); /* bulk in, 64 bytes, 1 bank */
             usb_init_endpoint(4, 2, 0, 3, 0); /* bulk out, 64 bytes, 1 bank */
 
-            SBI(UEIENX, NAKINE); // NAK INterrupts für IN Endpunkte erlauben
-            SBI(UEIENX, RXOUTE); // RX OUT Interrupts für OUT Endpunkte erlauben
+            UEIENX |= (1<<NAKINE); // NAK INterrupts für IN Endpunkte erlauben
+            UEIENX |= (1<<RXOUTE); // RX OUT Interrupts für OUT Endpunkte erlauben
 
-            UENUM = 0;
-            CBI(UEINTX, TXINI); // sende ZLP (Erfolg, löscht EP-Bank)
+            UENUM   = 0;
+            UEINTX &= ~(1<<TXINI); // sende ZLP (Erfolg, löscht EP-Bank)
             while (!(UEINTX & (1 << TXINI)))
                 ;
             break;
 
         default:
-            SBI(UECONX, STALLRQ);
+            UECONX |= (1<<STALLRQ);
             break;
         }
     } else
-        SBI(UECONX, STALLRQ); // Kein Standard Request, erfrage STALL Antwort
+        UECONX |= (1<<STALLRQ); // Kein Standard Request, erfrage STALL Antwort
 }
 
-/* Sende Deskriptor zum PC (22.14 IN-EP management S 275) Es werden nur so viele Bytes gesendet wie angefragt. Falls PC
- * in dieser Phase (bei Control Transaktion) abbrechen moechte, so sendet er ein ZLP Paket (2.14.1.1 S 276). Fuelle FIFO
- * (gegebenfalls mehrmals) und sende Daten.  */
-void usb_send_descriptor(uint8_t de[], uint8_t db) {
-    for (uint16_t i = 1; i <= db; i++) {
-        if (UEINTX & (1 << RXOUTI))
-            return; // PC will abbrechen!
+void usb_send_descriptor(const uint8_t *d, uint8_t len) {
+    for (uint16_t i=0; i<=len; i++) {
+        if (UEINTX & (1<<RXOUTI))
+            return; /* host wants to cancel */
 
-        UEDATX = pgm_read_byte(&de[i - 1]); // Schreibe Byte ins FIFO
+        UEDATX = pgm_read_byte(d++);
 
-        // immer nach 8 Bytes das Paket absenden und Speicherbank löschen
-        if ((i % 64) == 0) {
-            CBI(UEINTX, TXINI); // IN Paket (FIFO) senden, EP Bank loeschen 22.12 S272
-            while (!(UEINTX & ((1 << RXOUTI) | (1 << TXINI))))
-                ; // Warte bis Bank frei oder ACK Host
+        if (!(i&7)) {
+            UEINTX &= ~(1<<TXINI);
+            while (!(UEINTX & ((1<<RXOUTI) | (1<<TXINI))))
+                ; /* wait for bank release or host ack */
         }
     }
 
-    if (!(UEINTX & (1 << RXOUTI))) {
-        CBI(UEINTX, TXINI); // IN Paket (ZLP) senden, EP Bank loeschen 22.12
-        while (!(UEINTX & (1 << RXOUTI)))
-            ; // Warten bis ACK(ZLP) vom PC angekommen
+    if (!(UEINTX & (1<<RXOUTI))) {
+        UEINTX &= (1<<TXINI);
+        while (!(UEINTX & (1<<RXOUTI)))
+            ; /* wait for host ack */
     }
 
-    CBI(UEINTX, RXOUTI); // Handshake um Interrupt zu bestätigen
+    UEINTX &= ~(1<<RXOUTI);
 }
 
 void usb_ep1_in(void) {
-    if (UEINTX & (1 << NAKINI)) { // Sind Daten vom PC angefragt worden?
-        CBI(UEINTX, NAKINI);      // NAKIN Interrupt Flag loeschen
+    if (UEINTX & (1<<NAKINI)) { /* host requests data */
+        UEINTX &= ~(1<<NAKINI);
 
-        if (UEINTX & (1 << TXINI)) {
-            CBI(UEINTX, TXINI); // loescht EP-Bank
+        if (UEINTX & (1<<TXINI)) {
+            UEINTX &= ~(1<<TXINI); /* clear bank */
 
-            if (Ep1_flag == 1)
-                for (int i = 0; i < Ep1_cnt; i++)
-                    UEDATX = Ep1_buf[i];
+            uint8_t n = ep1_cnt;
+            for (int i=0; i<n; i++)
+                UEDATX = ep1_buf[i];
+            ep1_cnt = 0;
 
-            Ep1_flag = 0;
-            Ep1_cnt = 0;
-            CBI(UEINTX, FIFOCON); // FIFO wieder freigeben
+            UEINTX &= ~(1<<FIFOCON); /* release fifo */
         }
     }
 }
 
 void usb_ep2_out(void) {
-    if (UEINTX & (1 << RXOUTI)) { // Daten vom PC angekommen?
-        CBI(UEINTX, RXOUTI);      // Datenpaket bestaetigen (ACK)
-        for (int i = 0; i < 64; i++) {
-            if (UEINTX & (1 << RWAL)) { // Daten im FIFO?
-                Ep2_buf[i] = UEDATX;    // Lese USB FIFO
-                Ep2_cnt = i + 1;
+    if (UEINTX & (1<<RXOUTI)) { /* host sent data */
+        UEINTX &= ~(1<<RXOUTI); /* send ACK */
+        uint8_t i;
+        for (i=0; i<sizeof(ep2_buf); i++) {
+            if (UEINTX & (1<<RWAL)) {
+                ep2_buf[i++] = UEDATX;
             } else {
                 break;
             }
         }
-        Ep2_flag = 1;
-        CBI(UEINTX, FIFOCON); // FIFO wieder freigeben
+        ep2_cnt = i;
+        UEINTX &= ~(1<<FIFOCON); /* release fifo */
     }
 }
