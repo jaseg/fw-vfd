@@ -8,8 +8,23 @@ uint8_t parse_escape_sequence(char *seq, uint8_t len, uint8_t oldstyle) {
     if (seq[0] != '[')
         return STYLE_ERROR;
 
-    if (seq[len-1] != 'm')
-        return STYLE_ERROR;
+    if (seq[len-1] != 'm') {
+        if (len != 3)
+            return STYLE_ERROR;
+
+        if (seq[1] < '0' || seq[1] > '2')
+            return STYLE_ERROR;
+
+        if (seq[2] == 'E') /* used to set LEDs */
+            set_led(seq[1] - '0', 1);
+        else if (seq[2] == 'U') /* used to unset LEDs */
+            set_led(seq[1] - '0', 0);
+        else
+            return STYLE_ERROR;
+
+        return oldstyle;
+
+    }
 
     seq[len-1] = '\0';
     seq++;

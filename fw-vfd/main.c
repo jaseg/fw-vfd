@@ -14,12 +14,6 @@ extern const uint8_t font[102*5] PROGMEM;
 #define PULSE_LENGTH_US 10
 
 
-typedef enum {
-    LED_ERROR,
-    LED_PROG,
-    LED_POWER
-} led_t;
-
 void set_led(led_t led, uint8_t val) {
     switch (led) {
         case LED_ERROR:
@@ -192,9 +186,6 @@ int main(void) {
     sei();
 
     while (23) {
-
-        set_led(LED_ERROR, 1);
-
         vfd_grid_reset();
         for (uint8_t i=39; i<40; i--) {
             uint8_t ch = text[i];
@@ -202,7 +193,6 @@ int main(void) {
             _delay_us(300);
             vfd_grid_next();
         }
-
         blink_counter++;
     }
 }
