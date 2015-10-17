@@ -3,7 +3,7 @@
 #include <util/delay.h>
 
 
-#define PULSE_LENGTH_US 100
+#define PULSE_LENGTH_US 10
 
 
 typedef enum {
@@ -43,39 +43,47 @@ void uart_putc(char c) {
 }
 
 
-void sel_pulse(uint8_t val) {
-    uint8_t v = PORTD;
-    PORTD = v | (0x04<<val);
+void mux_pulse(uint8_t output) {
+    PORTC |= output;
+    PORTB &= ~0x04;
     _delay_us(PULSE_LENGTH_US);
+    PORTB |= 0x04;
+    PORTC &= ~output;
+}
+
+void sel_pulse(uint8_t idx) {
+    uint8_t v = PORTD;
+    PORTD = v | (0x04<<idx);
+    _delay_us(PULSE_LENGTH_US);
+    PORTD = v;
+}
+
+void grid_strobe(uint8_t idx) {
+    uint8_t v = PORTD;
+    PORTD = v | (0x04<<idx);
+    mux_pulse(6);
     PORTD = v;
 }
 
 void vfd_latch_data(uint8_t data[5]) {
     PORTA  = data[0];
-    sel_pulse(0);
+    grid_strobe(0);
     PORTA  = data[1];
-    sel_pulse(1);
+    grid_strobe(1);
     PORTA  = data[2];
-    sel_pulse(2);
+    grid_strobe(2);
     PORTA  = data[3];
-    sel_pulse(3);
+    grid_strobe(3);
     PORTA  = data[4];
-    sel_pulse(4);
-}
-
-void mux_pulse(uint8_t output) {
-    PORTC |= output;
-    PORTB |= 0x04;
-    _delay_us(PULSE_LENGTH_US);
-    PORTB &= 0x04;
-    PORTC &= ~output;
+    grid_strobe(4);
+    mux_pulse(7);
 }
 
 /* also sets one anode latch enable pin (A7) */
 void vfd_grid_reset(void) {
-    DDRD  |= 0x40;
+    PORTD  |= 0x04;
     mux_pulse(4);
-    PORTD &= ~0x40;
+    PORTD &= ~0x04;
 }
 
 void vfd_grid_next(void) {
@@ -86,13 +94,14 @@ void vfd_grid_next(void) {
 int main(void) {
     DDRD  |= 0x80; /* green  "power" led */
     DDRB  |= 0x03; /* red "error" led (PB0), yellow "prog" led (PB1) */
+    set_led(LED_POWER, 1);
 
     DDRD  |= 0x02; /* PD0 - RXD, PD1 - TXD */
 
     DDRA   = 0xff; /* VFD data out */
     DDRD  |= 0x7c; /* VFD anode latch select / A3-A7 */
     DDRB  |= 0x04; /* mux enable, active low */
-    PORTB &= ~0x04;
+    PORTB |= 0x04;
     DDRC  |= 0x07; /* mux address line out / A0-A2 */
 
     uint16_t ubrr_val = F_CPU/16/(BAUDRATE-1);
@@ -102,26 +111,9 @@ int main(void) {
     UCSRC = (1<<URSEL) | (3<<UCSZ0);
 
     while (23) {
-        set_led(0, 1);
-        uart_putc('a');
-        _delay_ms(500);
-        set_led(1, 1);
-        uart_putc('b');
-        _delay_ms(500);
-        set_led(2, 1);
-        uart_putc('c');
-        _delay_ms(500);
-        set_led(0, 0);
-        uart_putc('d');
-        _delay_ms(500);
-        set_led(1, 0);
-        uart_putc('e');
-        _delay_ms(500);
-        set_led(2, 0);
-        uart_putc('f');
-        uart_putc('\n');
-        _delay_ms(500);
-        continue;
+
+        set_led(LED_ERROR, 1);
+
         vfd_grid_reset();
         uint8_t data[5] = {0, 0, 0, 0, 0};
         for (uint8_t i=0; i<5; i++) {
@@ -129,8 +121,10 @@ int main(void) {
                 data[i] |= j;
                 vfd_latch_data(data);
                 vfd_grid_next();
-                _delay_ms(10);
+                _delay_us(250);
             }
+            if (i==2)
+                set_led(LED_ERROR, 0);
         }
     }
 }
