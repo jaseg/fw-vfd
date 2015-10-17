@@ -2,24 +2,29 @@
 
 from itertools import *
 
-# nc: 7, 18, 34
-# cursor: 30
+# nc:
+# cursor: 31
 PIXMAP = (
-		(36,37,24,25,38),
-		(31,26,23,32,33),
-		(27,28,35,19,29),
-		(15,20,21,16,17),
-		(22, 8, 6, 5, 9),
-		(10, 4, 0,14,13),
-		( 1, 2,12,11, 3))
+		(37,38,25,26,39),
+		(32,27,24,33,34),
+		(28,29,36,20,30),
+		(16,21,22,17,18),
+		(23, 9, 6, 5,10),
+		(11, 4, 0,15,14),
+		( 1, 2,13,12, 3),
+		(-1,-1,-1,-1,-1))
+
+# /* 0x21 */ {0x40,0x20,0x40,0x03,0x10}, /* '!' */
 
 def mapped(ch):
 	# please excuse my hackery here.
 	out = ['0']*40
-	bits = ''.join('{:08b}'.format(n) for n in ch)
+	bits = ''.join(''.join(reversed('{:08b}'.format(n))) for n in ch)
 	for b,pos in zip(bits, chain.from_iterable(zip(*PIXMAP))): # transpose PIXMAP here
-		out[pos] = b
-	return tuple(int(''.join(out[i:i+8]), 2) for i in range(0, 40, 8))
+		if pos>=0:
+			out[pos] = b
+	out = list(reversed(out))
+	return tuple(reversed(list(int(''.join(out[i:i+8]), 2) for i in range(0, 40, 8))))
 
 FONT = (
     (0x00,0x00,0x00,0x00,0x00),
@@ -221,7 +226,7 @@ print('''
  
 const char font[{}][5] PROGMEM = {{'''.format(len(FONT)))
 
-for i,ch in enumerate(TESTDATA):
-	print("/* 0x{:02x} */ {{0x{:02x},0x{:02x},0x{:02x},0x{:02x},0x{:02x}}}, /* '{}' */".format(i+0x20, *ch, chr(i+0x20)))
+for i,ch in enumerate(FONT):
+	print("/* 0x{:02x} */ {{0x{:02x},0x{:02x},0x{:02x},0x{:02x},0x{:02x}}}, /* '{}' */".format(i+0x20, *mapped(ch), chr(i+0x20)))
 
 print('};')

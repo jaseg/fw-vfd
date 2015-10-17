@@ -2,7 +2,7 @@
 all: main.elf
 
 
-main.elf: main.c
+main.elf: main.c font.c
 	avr-gcc -O2 -mmcu=atmega16 -DF_CPU=8000000 -DBAUDRATE=9600 -std=gnu11 -o $@ $^
 
 clean:

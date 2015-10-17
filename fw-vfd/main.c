@@ -1,6 +1,10 @@
 
 #include <avr/io.h>
 #include <util/delay.h>
+#include <avr/pgmspace.h>
+
+
+extern const uint8_t font[95*5] PROGMEM;
 
 
 #define PULSE_LENGTH_US 10
@@ -65,16 +69,16 @@ void grid_strobe(uint8_t idx) {
     PORTD = v;
 }
 
-void vfd_latch_data(uint8_t data[5]) {
-    PORTA  = data[0];
+void vfd_latch_data(uint8_t *data PROGMEM, uint8_t cursor) {
+    PORTA  = pgm_read_byte(data+0);
     grid_strobe(0);
-    PORTA  = data[1];
+    PORTA  = pgm_read_byte(data+1);
     grid_strobe(1);
-    PORTA  = data[2];
+    PORTA  = pgm_read_byte(data+2);
     grid_strobe(2);
-    PORTA  = data[3];
+    PORTA  = pgm_read_byte(data+3) | (cursor ? 0x80 : 0x00);
     grid_strobe(3);
-    PORTA  = data[4];
+    PORTA  = pgm_read_byte(data+4);
     grid_strobe(4);
     mux_pulse(7);
 }
@@ -115,16 +119,15 @@ int main(void) {
         set_led(LED_ERROR, 1);
 
         vfd_grid_reset();
-        uint8_t data[5] = {0, 0, 0, 0, 0};
-        for (uint8_t i=0; i<5; i++) {
-            for (uint8_t j=1; j; j<<=1) {
-                data[i] |= j;
-                vfd_latch_data(data);
-                vfd_grid_next();
-                _delay_us(250);
-            }
-            if (i==2)
-                set_led(LED_ERROR, 0);
+        /*           |.........#.........#.........#.........#| 40 chars */
+//      char *text = "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!";
+        char *text = "ABCD 1234|blank_=+@!.*Test()+{&%$EFGHIJ}";
+        uint8_t cpos = 5;
+        for (uint8_t i=0; i<40; i++) {
+            char ch = text[39-i];
+            vfd_latch_data(font+(ch-32)*5, cpos == (39-i));
+            _delay_us(300);
+            vfd_grid_next();
         }
     }
 }
