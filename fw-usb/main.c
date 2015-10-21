@@ -26,63 +26,119 @@
 #include <string.h>
 #include "usb_srs_hid.h"
 
-void key_down(uint8_t mod, uint8_t code) {
+#define NONE 0x00
+#define LCTR 0xe0 /* left control */
+#define LSHT 0xe1 /* left shift */
+#define LALT 0xe2 /* left alt */
+#define LGUI 0xe3 /* left gui */
+#define RCTR 0xe4 /* right control */
+#define RSHT 0xe5 /* right shift */
+#define RALT 0xe6 /* right alt */
+#define RGUI 0xe7 /* right gui */
+
+struct kbd_hid_rep {
+    uint8_t mod;
+    uint8_t _pad;
+    uint8_t keys[6];
+};
+
+volatile struct kbd_hid_rep *rep = (volatile struct kbd_hid_rep *)ep1_buf;
+
+uint8_t modbyte(uint8_t code) {
+    /* modifiers: R GUI, R ALT, R SHIFT, R CTRL,L GUI, L ALT, L SHIFT, L CTRL */
+    switch (code) {
+        case RGUI:
+            return 0x80;
+        case RALT:
+            return 0x40;
+        case RSHT:
+            return 0x20;
+        case RCTR:
+            return 0x10;
+        case LGUI:
+            return 0x08;
+        case LALT:
+            return 0x04;
+        case LSHT:
+            return 0x02;
+        case LCTR:
+            return 0x01;
+        default:
+            return 0;
+    }
+}
+
+void key_down(uint8_t code) {
     uint8_t i;
 
-    ep1_buf[0] = mod;  /* modifiers: R GUI, R ALT, R SHIFT, R CTRL,L GUI, L ALT, L SHIFT, L CTRL */
+    if ((i = modbyte(code)))
+        return rep->mod |= i, (void)0;
 
-    for (i=2; i<8; i++) {
-        if (!ep1_buf[i]) {
-            ep1_buf[i] = code;
-            ep1_cnt = i+1;
+    for (i=0; i<sizeof(rep->keys); i++) {
+        if (!rep->keys[i]) {
+            rep->keys[i] = code;
+            ep1_cnt = i+3;
             return;
         }
     }
-    /* If control flow reaches this point, there are more than 6 keys pressed. We don't have any provisions for that and
-     * just ignore any additional keys pressed. */
+    /* If control flow reaches this point, there are more than 6 keys pressed (or we were called with a NONE event). We
+     * don't have any provisions for that and just ignore any additional keys pressed. The USB HID standard says we
+     * should send an "rollover" code for all keys, but I don't like that. */
 }
 
-void key_up(uint8_t mod, uint8_t code) {
+void key_up(uint8_t code) {
     uint8_t i;
 
-    ep1_buf[0] = mod; /* modifiers */
+    if ((i = modbyte(code)))
+        return rep->mod &= ~i, (void)0;
 
     /* find the entry in the current buffer, remove it and shift up any following entries. */
-    for (i=2; i<8; i++)
-        if (ep1_buf[i] == code)
+    for (i=0; i<sizeof(rep->keys); i++)
+        if (rep->keys[i] == code)
             break;
-    for (; i<8; i++) {
-        uint8_t next = ep1_buf[i+1];
-        ep1_buf[i] = next;
-        if (!next) { /* will always happen at some iteration */
-            ep1_cnt = i;
-        }
+
+    for (; i<sizeof(rep->keys); i++) {
+        uint8_t next = rep->keys[i+1];
+        rep->keys[i] = next;
+        if (!next) /* will always happen at some iteration */
+            break;
     }
+    ep1_cnt = i+2;
 }
 
 void virt_uart_tx(const char *s, uint8_t len) {
-    memcpy(ep3_buf, s, len);
+    memcpy((char *)ep3_buf, s, len);
     ep3_cnt = len;
     while (ep3_cnt);
 }
 
 int main(void) {
-    DDRD |= 0x30;
+    DDRD  |= 0x30; /* Arduino TX/RX LEDs, active low */
+    PORTD |= 0x20; /* TX LED */
+
+    /* CAUTION! The keyboard slave interface uses 9N1 (!) framing. The 9th bit indicates key press (1) or release (0),
+     * the remaining 8 bits the USB HID keycode. */
+    DDRD  |= 0x08;
+    UBRR1  = F_CPU/16/(BAUDRATE-1);
+    UCSR1B = (1<<RXEN1) | (1<<TXEN1);
+    UCSR1C = (7<<UCSZ10);
 
     usb_init_device();
     memset((void *)ep1_buf, 0, sizeof(ep1_buf));
     sei();
-    PORTD |= 0x20;
 
     while(23) {
-        PORTD ^= 0x10;
-        if (ep4_cnt) {
-            const char *s = "Your input: ";
-            virt_uart_tx(s, strlen(s));
-            virt_uart_tx(ep4_buf, ep4_cnt);
-            virt_uart_tx("\r\n", 2);
-            ep4_cnt = 0;
-        }
-        _delay_ms(100);
+//        if (ep4_cnt) {
+//        }
+        uint8_t st = UCSR1A;
+        if (!(st & (1<<RXC1)))
+            continue;
+        PORTD ^= 0x10; /* RX LED */
+        if (st & ((1<<FE1) | (1<<DOR1) | (1<<UPE1))) /* some kind of error */
+            continue;
+        if (UCSR1B & (1<<RXB81))
+            key_down(UDR1);
+        else
+            key_up(UDR1);
     }
 }

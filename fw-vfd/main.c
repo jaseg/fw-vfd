@@ -177,11 +177,15 @@ int main(void) {
     PORTB |= 0x04;
     DDRC  |= 0x07; /* mux address line out / A0-A2 */
 
+    /* CAUTION! Since we are splitting the USB interface's UART into RX and TX to keyboard and display respectively
+     * here, we need to use compatible framing settings. To easily convey the information necessary for the USB HID
+     * converter, the keyboard needs to use 9N1 framing, and thus so must we here. We lateron ignore that 9th bit,
+     * though. */
     uint16_t ubrr_val = F_CPU/16/(BAUDRATE-1);
     UBRRH  = ubrr_val>>8;
     UBRRL  = ubrr_val&0xff;
     UCSRB = (1<<TXEN) | (1<<RXEN) | (1<<RXCIE);
-    UCSRC = (1<<URSEL) | (3<<UCSZ0);
+    UCSRC = (1<<URSEL) | (7<<UCSZ0);
 
     sei();
 
