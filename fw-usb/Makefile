@@ -14,7 +14,12 @@ main.elf: main.c usb_srs_hid.c
 	avr-gcc $(CFLAGS) -o $@ $^
 	avr-size $@
 
+lst: main.lst usb_srs_hid.lst
+
+%.lst: %.c
+	avr-gcc -c -g -Wa,-a,-ad $(CFLAGS) $^ > $@
+
 clean:
 	rm -f main.elf 
 
-.PHONY:	program clean
+.PHONY:	program clean lst

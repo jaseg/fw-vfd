@@ -1,4 +1,4 @@
-/* Licence: GPL-3
+/* Licence: GPLv3
  *
  * Copyright (c) 2013 Guy Weiler <weigu@weigu.lu>
  * Copyright (c) 2015 Sebastian Götte <jaseg@jaseg.net>
@@ -61,9 +61,29 @@ void key_release(uint8_t mod, uint8_t code) {
 }
 
 int main(void) {
+    DDRD |= 0x30;
+
     usb_init_device();
     memset((void *)ep1_buf, 0, sizeof(ep1_buf));
     sei();
+    PORTD |= 0x20;
 
-    while(23);
+    uint16_t i;
+    while(23) {
+        i++;
+        if (!i)
+            PORTD ^= 0x10;
+        if (ep4_cnt > 0) {
+            memcpy(ep3_buf, ep4_buf, ep4_cnt);
+            ep3_cnt = ep4_cnt;
+            ep4_cnt = 0;
+
+            UENUM = 3;
+            uint8_t n = ep3_cnt;
+            for (int i=0; i<n; i++)
+                UEDATX = ep3_buf[i];
+
+            UEINTX &= ~(1<<FIFOCON); /* release fifo */
+        }
+    }
 }

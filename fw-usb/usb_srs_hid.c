@@ -1,4 +1,4 @@
-/* Licence: GPL-3
+/* Licence: GPLv3
  *
  * Copyright (c) 2009 Guy Weiler <weigu@weigu.lu>
  * Copyright (c) 2015 Sebastian Götte <jaseg@jaseg.net>
@@ -28,6 +28,19 @@
 #define UNUSED(x) (void)(x)
 
 
+volatile uint8_t ep1_buf[64]; /* TODO about 8 bytes should be sufficient here. Check USB FIFO handling and call sites. */
+volatile uint8_t ep1_cnt;
+
+volatile uint8_t ep2_buf[64];
+volatile uint8_t ep2_cnt;
+
+volatile uint8_t ep3_buf[64];
+volatile uint8_t ep3_cnt;
+
+volatile uint8_t ep4_buf[64];
+volatile uint8_t ep4_cnt;
+
+
 ISR(USB_GEN_vect) {
     if (UDINT & (1 << EORSTI)) { // End Of ReSeT?
         UDINT &= ~(1<<EORSTI);      // sperre EORSTI
@@ -37,64 +50,42 @@ ISR(USB_GEN_vect) {
 }
 
 ISR(USB_COM_vect) {
-    switch (UEINT) {
-    case 1: /* ep 0 */
+    if (UEINT&1) { /* ep 0 */
         UENUM = 0;
-        if (UEINTX & (1 << RXSTPI))
+        if (UEINTX & (1<<RXSTPI))
             usb_ep0_setup();
-        break;
+    }
 
-    case 2: /* ep 1 */
+    if (UEINT&2) { /* ep 1 */
         UENUM = 1;
-        usb_ep1_in();
-        break;
+        usb_ep_in(ep1_buf, &ep1_cnt);
+    }
 
-    case 4: /* ep 2 */
+    if (UEINT&4) { /* ep 2 */
         UENUM = 2;
-        usb_ep2_out();
-        break;
+        usb_ep_out(ep2_buf, &ep2_cnt, sizeof(ep2_buf));
+    }
 
-    case 8: /* ep 3 */
+    if (UEINT&8) { /* ep 3 */
         UENUM = 3;
-        usb_ep3_in();
-        break;
+        usb_ep_in(ep3_buf, &ep3_cnt);
+    }
 
-    case 16: /* ep 4 */
+    if (UEINT&16) { /* ep 4 */
         UENUM = 4;
-        usb_ep4_out();
-        break;
+        usb_ep_out(ep4_buf, &ep4_cnt, sizeof(ep4_buf));
     }
 }
 
 
 void usb_init_device(void) {
-#if defined(__AVR_ATmega32U4__)
-    UHWCON = (1<<UVREGE); /* enable usb voltage regulator */
-#endif
-#if defined(__AVR_AT90USB1287__)// Der ATMEL Bootloader nutzt einige Interrupts
-    USBCON = (1<<FRZCLK);
-    OTGIEN = 0;                 // Deaktiviere diese Interrupts damit sauberer Start
-    UDIEN  = 0;
-    UHIEN  = 0;
-    UEIENX = 0;
-    UPIENX = 0;
-    UHWCON = (1<<UIMOD);        // Enable Device Modus und Regelkreis zur Versorgung
-    UHWCON = (1<<UIMOD) | (1<<UVREGE);                 // der D+ und D- Leitung einschalten
-#endif
-#if defined(__AVR_AT90USB162__) || defined(__AVR_ATmega32U2__) || defined(__AVR_ATmega8U2__)
     USBCON = (1<<USBE) | (1<<FRZCLK);
-#else
-    USBCON = (1<<USBE) | (1<<FRZCLK) | (1<<OTGPADE);
-#endif
+
     /* toggle FRZCLK to wake up module */
     USBCON &= ~(1<<FRZCLK);
     USBCON |= (1<<FRZCLK);
     /* start USB PLL */
-#if defined(__AVR_ATmega8U2__)
-    PLLCSR = 0x04; /* my headers are strange */
-#else
-    PLLCSR = PLLPRE;
-#endif
+    PLLCSR = 0x04;
     PLLCSR |= (1<<PLLE);
 
     while (!(PLLCSR & (1<<PLOCK)))
@@ -128,23 +119,23 @@ static const uint8_t PROGMEM dev_des[] = {
     0xeb,0x03,  // idVendor: Atmel
     0x02,0x00,  // idProduct
     0x00,0x01,  // bcdDevice (1.0)
-    Manu_i,     // iManufacturer
-    Prod_i,     // iProduct
-    Seri_i,     // iSerialNumber
+    0x01,       // iManufacturer
+    0x02,       // iProduct
+    0x03,       // iSerialNumber
     0x01        // bNumConfigurations
 };
 
 static const uint8_t PROGMEM conf_des[] = {
     9,          // bLength
     0x02,       // bDescriptorType: configuration
-    0x40,0x00,  // wTotalLength
-    0x02,       // bNumInterfaces
+    0x5e,0x00,  // wTotalLength
+    3,          // bNumInterfaces
     0x01,       // bConfigurationValue
     0,          // iConfiguration
     0x80,       // bmAttributes: bus-powered, no remote wakeup
     250,        // MaxPower: 500mA
 
-    /* interface 0 */
+    /* interface 0: HID keyboard */
     9,          // bLength
     0x04,       // bDescriptorType: interface
     0,          // bInterfaceNumber
@@ -169,7 +160,7 @@ static const uint8_t PROGMEM conf_des[] = {
     0x05,       // bDescriptorType: Endpoint
     0x81,       // bEndpointAddress: IN
     0x03,       // bmAttributes: Interrupt
-    64, 0,      // wMaxPacketSize: EP1_FIFO_Size;
+    64, 0,      // wMaxPacketSize
     1,          // bInterval: [ms]
 
     /* ep 2 */
@@ -177,18 +168,65 @@ static const uint8_t PROGMEM conf_des[] = {
     0x05,       // bDescriptorType: Endpoint
     0x02,       // bEndpointAddress: OUT
     0x03,       // bmAttributes: Interrupt
-    64, 0,      // wMaxPacketSize: EP2_FIFO_Size;
+    64, 0,      // wMaxPacketSize
     1,          // bInterval: [ms]
 
-    /* interface 1 ***/
+    /* interface 1: ACM control */
     9,          // bLength
     0x04,       // bDescriptorType: Interface
     1,          // bInterfaceNumber
     0,          // bAlternateSetting
-    2,          // bNumEndpoints
+    1,          // bNumEndpoints FIXME: do we need a notification endpoint here?
     0x02,       // bInterfaceClass: CDC
     0x02,       // bInterfaceSubClass: ACM
-    0xff,       // bInterfaceProtocol: USB_CDC_ACM_PROTO_VENDOR
+    0x01,       // bInterfaceProtocol: AT command protocol FIXME: would 0xff USB_CDC_ACM_PROTO_VENDOR be more appropriate here?
+    0,          // iInterface: none
+
+    /* recycle ep 1 here */
+    7,          // bLength
+    0x05,       // bDescriptorType: Endpoint
+    0x81,       // bEndpointAddress: IN
+    0x03,       // bmAttributes: Interrupt
+    64, 0,      // wMaxPacketSize
+    1,          // bInterval: [ms]
+
+    /* CDC header */
+    0x05,       // bFunctionLength
+    0x24,       // bDescriptorType: CS_INTERFACE
+    0x00,       // bDescriptorSubtype: header
+    0x10,0x01,  // bcdCDC: 1.1
+
+    /* CDC ACM */
+    0x04,       // bFunctionLength
+    0x24,       // bDescriptorType: CS_INTERFACE
+    0x02,       // bDescriptorSubtype: ACM
+    0x00,       // bmCapabilities: Support nothing, this is an emulated serial, anyway.
+
+    /* union */
+    0x05,       // bFunctionLength
+    0x24,       // bDescriptorType: CS_INTERFACE
+    0x06,       // bDescriptorSubtype: union
+    1,          // bControlInterface: control interface number
+    2,          // bSubordinateInterface0: data interface number
+
+    /* call management */
+    /* not needed, I think
+    0x05,       // bFunctionLength
+    0x24,       // bDescriptorType: CS_INTERFACE
+    0x01,       // bDescriptorSubtype: call management
+    0x02,       // bmCapabilites: in-band, off-device call management over data interface
+    2,          // bDataInterface: call management data interface number
+    */
+
+    /* interface 2: ACM data */
+    9,          // bLength
+    0x04,       // bDescriptorType: Interface
+    2,          // bInterfaceNumber
+    0,          // bAlternateSetting
+    2,          // bNumEndpoints
+    0x0a,       // bInterfaceClass: CDC data
+    0x00,       // bInterfaceSubClass: no data subclass
+    0x00,       // bInterfaceProtocol: no data protocol
     0,          // iInterface: none
 
     /* ep 3 */
@@ -196,7 +234,7 @@ static const uint8_t PROGMEM conf_des[] = {
     0x05,       // bDescriptorType: Endpoint
     0x83,       // bEndpointAddress: IN
     0x02,       // bmAttributes: Bulk
-    64, 0,      // wMaxPacketSize = EP1_FIFO_Size;
+    64, 0,      // wMaxPacketSize
     0,          // bInterval (ignored here)
 
     /* ep 4 */
@@ -204,7 +242,7 @@ static const uint8_t PROGMEM conf_des[] = {
     0x05,       // bDescriptorType: Endpoint
     0x04,       // bEndpointAddress: OUT
     0x02,       // bmAttributes: Bulk
-    64, 0,      // wMaxPacketSize = EP2_FIFO_Size;
+    64, 0,      // wMaxPacketSize
     0           // bInterval (ignored here)
 };
 
@@ -270,9 +308,9 @@ static const struct {
     uint8_t size;
 } descs[NUM_DESCS] = {
     [Lang_i] = {.desc=lang_des, .size=sizeof(lang_des)},
-    [Manu_i] = {.desc=manu_des, .size=sizeof(lang_des)},
-    [Prod_i] = {.desc=prod_des, .size=sizeof(lang_des)},
-    [Seri_i] = {.desc=seri_des, .size=sizeof(lang_des)}
+    [Prod_i] = {.desc=prod_des, .size=sizeof(prod_des)},
+    [Manu_i] = {.desc=manu_des, .size=sizeof(manu_des)},
+    [Seri_i] = {.desc=seri_des, .size=sizeof(seri_des)}
 };
 
 
@@ -285,7 +323,6 @@ void usb_ep0_setup(void) {
     uint8_t wIndex_h;
     uint8_t wLength_l;
     uint8_t wLength_h;
-    uint8_t des_bytes;
 
     bmRequestType = UEDATX;
     bRequest      = UEDATX;
@@ -297,140 +334,148 @@ void usb_ep0_setup(void) {
     wLength_h     = UEDATX;
 
     UNUSED(bmRequestType); /* properly handling it is not strictly necessary. TODO check this. */
-    UNUSED(wIndex_l);
-    UNUSED(wIndex_h);
 
     UEINTX &= ~(1<<RXSTPI); /* transmit ACK */
 
-    switch (bRequest) {
-    case 0x00: /* GET_STATUS (3-phase) FIXME is handling of this necessary? */
-        UEDATX  = 0;
-        UEDATX  = 0;
-        UEINTX &= ~(1<<TXINI); /* transmit ACK */
-        while (!(UEINTX & (1 << RXOUTI)))
-            ; /* wait for ZLP */
-        UEINTX &= ~(1<<RXOUTI);
-        break;
+    if (wIndex_h) { /* sanity check, we only have less than 256 interfaces. */
+        UECONX |= (1<<STALLRQ);
+        return;
+    }
 
-    case 0x05: /* SET_ADDRESS (2-phase; no data phase) */
-        UDADDR  = (wValue_l & 0x7F);
-        UEINTX &= ~(1<<TXINI); /* transmit ZLP */
-        while (!(UEINTX & (1 << TXINI)))
-            ; /* wait for bank release */
-        UDADDR |= (1<<ADDEN); // Adresse aktivieren
-        break;
-
-    case 0x06: /* GET_DESCRIPTOR (3-phase transfer) */
-        switch (wValue_h) {
-        case 1: /* device */
-            usb_send_descriptor((uint8_t *)dev_des, sizeof(dev_des));
+    if (wIndex_l) { /* one of the CDC interfaces (control/data) is adressed */
+        switch (bRequest) {
+        case 0x20: /* CDC ACM set line coding */
+            UEINTX &= ~(1<<TXINI); /* transmit ACK */
+            break;
+        default:
+            UECONX |= (1<<STALLRQ);
+            break;
+        }
+    } else {
+        switch (bRequest) {
+        case 0x00: /* GET_STATUS (3-phase) FIXME is handling of this necessary? */
+            UEDATX  = 0;
+            UEDATX  = 0;
+            UEINTX &= ~(1<<TXINI); /* transmit ACK */
+            while (!(UEINTX & (1 << RXOUTI)))
+                ; /* wait for ZLP */
+            UEINTX &= ~(1<<RXOUTI);
             break;
 
-        case 2: /* configuration */
-            des_bytes = wLength_l;
-            /* Manchmal erfragt Windows unsinnig hohe Werte (groesser als
-             * 256 Byte). Dadurch steht dann im Lowbyte ev. ein falscher
-             * Wert Es wird hier davon ausgegangen, dass nicht mehr als 256
-             * Byte angefragt werden können. */
-            if (wLength_h || (wLength_l > 0x40) || (wLength_l == 0))
-                des_bytes = 0x40;
-            usb_send_descriptor((uint8_t *)conf_des, sizeof(conf_des));
+        case 0x05: /* SET_ADDRESS (2-phase; no data phase) */
+            UDADDR  = (wValue_l & 0x7F);
+            UEINTX &= ~(1<<TXINI); /* transmit ZLP */
+            while (!(UEINTX & (1 << TXINI)))
+                ; /* wait for bank release */
+            UDADDR |= (1<<ADDEN);
             break;
 
-        case 3: /* string */
-            if (wValue_l < NUM_DESCS)
-                usb_send_descriptor(descs[wValue_l].desc, descs[wValue_l].size);
+        case 0x06: /* GET_DESCRIPTOR (3-phase transfer) */
+            switch (wValue_h) {
+            case 1: /* device */
+                usb_send_descriptor(dev_des, sizeof(dev_des));
+                break;
+
+            case 2: /* configuration */
+                /* Manchmal erfragt Windows unsinnig hohe Werte (groesser als
+                 * 256 Byte). Dadurch steht dann im Lowbyte ev. ein falscher
+                 * Wert Es wird hier davon ausgegangen, dass nicht mehr als 256
+                 * Byte angefragt werden können. */
+                if (wLength_h || (wLength_l > sizeof(conf_des)) || !wLength_l)
+                    wLength_l = sizeof(conf_des);
+                usb_send_descriptor(conf_des, wLength_l);
+                break;
+
+            case 3: /* string */
+                if (wValue_l < NUM_DESCS)
+                    usb_send_descriptor(descs[wValue_l].desc, (wLength_l < descs[wValue_l].size) ? wLength_l : descs[wValue_l].size);
+                break;
+
+            case 34: /* HID report */
+                usb_send_descriptor(rep_des, (wLength_l > sizeof(rep_des)) ? sizeof(rep_des) : wLength_l);
+                break;
+
+            default:
+                break;
+            }
             break;
 
-        case 34: /* HID report */
-            des_bytes = wLength_l;
-            usb_send_descriptor((uint8_t *)rep_des, des_bytes);
+        case 0x09: /* SET_CONFIGURATION (2-phase; no data phase) */
+            for (uint8_t i=4; i; i--) { /* backwards due to memory assignment */
+                UENUM    = i;
+                UECONX  &= ~(1<<EPEN);
+                UECFG1X &= ~(1<<ALLOC);
+            }
+
+            usb_init_endpoint(1, 3, 1, 3, 0); /* interrupt in, 64 bytes, 1 bank */
+            usb_init_endpoint(2, 3, 0, 3, 0); /* interrupt out, 64 bytes, 1 bank */
+            usb_init_endpoint(3, 2, 1, 3, 0); /* bulk in, 64 bytes, 1 bank */
+            usb_init_endpoint(4, 2, 0, 3, 0); /* bulk out, 64 bytes, 1 bank */
+
+            UEIENX |= (1<<NAKINE);
+            UEIENX |= (1<<RXOUTE);
+// FIXME needed?            UEIENX |= (1<<TXINE);
+
+            UENUM   = 0;
+            UEINTX &= ~(1<<TXINI); // sende ZLP (Erfolg, löscht EP-Bank)
+            while (!(UEINTX & (1 << TXINI)))
+                ;
             break;
 
         default:
+            UECONX |= (1<<STALLRQ);
             break;
         }
-        break;
-
-    case 0x09: /* SET_CONFIGURATION (2-phase; no data phase) */
-        for (uint8_t i=4; i; i--) { /* backwards due to memory assignment */
-            UENUM    = i;
-            UECONX  &= ~(1<<EPEN);
-            UECFG1X &= ~(1<<ALLOC);
-        }
-
-        usb_init_endpoint(1, 3, 1, 3, 0); /* interrupt in, 64 bytes, 1 bank */
-        usb_init_endpoint(2, 3, 0, 3, 0); /* interrupt out, 64 bytes, 1 bank */
-        usb_init_endpoint(3, 2, 1, 3, 0); /* bulk in, 64 bytes, 1 bank */
-        usb_init_endpoint(4, 2, 0, 3, 0); /* bulk out, 64 bytes, 1 bank */
-
-        UEIENX |= (1<<NAKINE);
-        UEIENX |= (1<<RXOUTE);
-
-        UENUM   = 0;
-        UEINTX &= ~(1<<TXINI); // sende ZLP (Erfolg, löscht EP-Bank)
-        while (!(UEINTX & (1 << TXINI)))
-            ;
-        break;
-
-    default:
-        UECONX |= (1<<STALLRQ);
-        break;
     }
 }
 
 void usb_send_descriptor(const uint8_t *d, uint8_t len) {
-    for (uint16_t i=0; i<=len; i++) {
+    while (len) {
         if (UEINTX & (1<<RXOUTI))
-            return; /* host wants to cancel */
+            break; /* host wants to cancel */
 
-        UEDATX = pgm_read_byte(d++);
+        uint8_t j = (len > 8 ? 8 : len);
+        while (j--)
+            UEDATX = pgm_read_byte(d++);
+        len = (len > 8) ? len-8 : 0;
 
-        if (!(i&7)) {
-            UEINTX &= ~(1<<TXINI);
-            while (!(UEINTX & ((1<<RXOUTI) | (1<<TXINI))))
-                ; /* wait for bank release or host ack */
-        }
+        UEINTX &= ~(1<<TXINI);
+        while (!(UEINTX & ((1<<RXOUTI) | (1<<TXINI))))
+            ; /* wait for bank release or host ack */
     }
 
-    if (!(UEINTX & (1<<RXOUTI))) {
-        UEINTX &= (1<<TXINI);
-        while (!(UEINTX & (1<<RXOUTI)))
-            ; /* wait for host ack */
-    }
+    while (!(UEINTX & (1<<RXOUTI)))
+        ; /* wait for host ack */
 
     UEINTX &= ~(1<<RXOUTI);
 }
 
-void usb_ep1_in(void) {
-    if (UEINTX & (1<<NAKINI)) { /* host requests data */
-        UEINTX &= ~(1<<NAKINI);
+void usb_ep_in(volatile uint8_t *buf, volatile uint8_t *count) {
+    if (!(UEINTX & (1<<NAKINI)))
+        return;
+    /* host requests data */
+    UEINTX &= ~(1<<NAKINI);
 
-        if (UEINTX & (1<<TXINI)) {
-            UEINTX &= ~(1<<TXINI); /* clear bank */
+    /* bank is free */
+    UEINTX &= ~(1<<TXINI);
 
-            uint8_t n = ep1_cnt;
-            for (int i=0; i<n; i++)
-                UEDATX = ep1_buf[i];
-            ep1_cnt = 0;
+    uint8_t n = *count;
+    for (int i=0; i<n; i++)
+        UEDATX = buf[i];
+    *count = 0;
 
-            UEINTX &= ~(1<<FIFOCON); /* release fifo */
-        }
-    }
+    UEINTX &= ~(1<<FIFOCON); /* release fifo */
 }
 
-void usb_ep2_out(void) {
-    if (UEINTX & (1<<RXOUTI)) { /* host sent data */
-        UEINTX &= ~(1<<RXOUTI); /* send ACK */
-        uint8_t i;
-        for (i=0; i<sizeof(ep2_buf); i++) {
-            if (UEINTX & (1<<RWAL)) {
-                ep2_buf[i++] = UEDATX;
-            } else {
-                break;
-            }
-        }
-        ep2_cnt = i;
-        UEINTX &= ~(1<<FIFOCON); /* release fifo */
-    }
+void usb_ep_out(volatile uint8_t *buf, volatile uint8_t *count, uint8_t size) {
+    if (!(UEINTX & (1<<RXOUTI))) /* host did not send data */
+        return;
+    UEINTX &= ~(1<<RXOUTI); /* send ACK */
+
+    uint8_t i = 0;
+    while ((i < size) && (UEINTX & (1<<RWAL)))
+        buf[i++] = UEDATX;
+    *count = i;
+
+    UEINTX &= ~(1<<FIFOCON); /* release fifo */
 }
