@@ -40,30 +40,30 @@ char to_hex(uint8_t nibble) {
         return 'a'+(nibble-0xa);
 }
 
-void uart_putc(char c) {
-    while (!(UCSR0A & (1<<UDRE0)));
-    UDR0 = c;
-}
-
-uint8_t keystate[90];
+int8_t keystate[90];
 
 #define DEBOUNCE_TIME 20 /* roughly milliseconds */
 
+
 #define NONE 0x00
-#define RALT 0xe6
-#define META 0xe3
-#define LCTR 0xe0
-#define RCTR 0xe4
-#define SHFT 0xe1
+#define LCTR 0xe0 /* left control */
+#define LSHT 0xe1 /* left shift */
+#define LALT 0xe2 /* left alt */
+#define LGUI 0xe3 /* left gui */
+#define RCTR 0xe4 /* right control */
+#define RSHT 0xe5 /* right shift */
+#define RALT 0xe6 /* right alt */
+#define RGUI 0xe7 /* right gui */
+
 
 const char keymap[90] = {
 /*          0     1     2     3      4     5     6     7                8     9     a     b      c     d     e     f */
 /* 0x00 */ 0x0f, 0x5a, 0x5b, 0x9a,  0x44, 0x18, 0x2e, 0x17, /* 0x08 */ 0x42, 0x1b, 0x12, 0x5f,  0x5e, 0x40, 0x3d, 0x11,
-/* 0x10 */ 0x34, 0x22, 0x2a, 0x20,  0x25, 0x14, NONE, NONE, /* 0x18 */ NONE, 0x0a, 0x27, 0x08,  RCTR, 0x4e, 0x0d, SHFT,
+/* 0x10 */ 0x34, 0x22, 0x2a, 0x20,  0x25, 0x14, NONE, NONE, /* 0x18 */ NONE, 0x0a, 0x27, 0x08,  RCTR, 0x4e, 0x0d, LSHT,
 /* 0x20 */ 0x1e, NONE, NONE, 0x23,  0x37, 0x07, 0x89, 0x04, /* 0x28 */ 0x10, NONE, NONE, NONE,  NONE, 0x05, 0x13, 0x06,
 /* 0x30 */ 0x30, 0x1f, 0x0c, 0x43,  0x5d, NONE, NONE, 0x1c, /* 0x38 */ 0x33, 0x21, 0x28, LCTR,  0x26, 0x62, 0x60, NONE,
 /* 0x40 */ 0x3b, 0x2c, 0x2d, 0x15,  RALT, 0x1d, 0x0e, 0x59, /* 0x48 */ 0xb0, 0x3e, 0x3a, 0x24,  NONE, 0x09, 0x35, 0x1a,
-/* 0x50 */ 0x36, 0x5c, 0x61, 0x3f,  0x3c, 0x0b, 0x2f, 0x19, /* 0x58 */ META, 0x16
+/* 0x50 */ 0x36, 0x5c, 0x61, 0x3f,  0x3c, 0x0b, 0x2f, 0x19, /* 0x58 */ LGUI, 0x16
 
 /* * The caret ^ key has been assigned to the backtick/tilde key not present on this keyboard, and thus moved from left
  *   to right.
@@ -72,7 +72,7 @@ const char keymap[90] = {
  * * The vertical tab key has been mapped to 0x4e, "Page Down"
  * * The horizontal tab keys and the modifier [1] key have been assigned the left control, right control and right alt
  *   roles, respectively.
- * * The funky arrow key ⇻ on the right has been assigned the META modifer role.
+ * * The funky arrow key ⇻ on the right has been assigned the LGUI/Meta/Mod3/Windows key modifer role.
  * * The keypad P key has been assigned 0x9a "Keyboard SysReq/Attention". It has an additional spring and is harder to
  *   actuate than all other keys on the keyboard.
  * * The remaining red keypad keys have been assigned "Keyboard F" key mappings according to the following table
@@ -92,9 +92,18 @@ const char keymap[90] = {
  */
 };
 
-void report (uint8_t idx) {
-    char c = keymap[idx];
-    uart_putc(c);
+
+/* CAUTION! The UART uses 9N1 frames !! */
+void report_down (uint8_t c) {
+    while (!(UCSR0A & (1<<UDRE0)));
+    UCSR0B |= (1<<TXB80);
+    UDR0 = c;
+}
+
+void report_up (uint8_t c) {
+    while (!(UCSR0A & (1<<UDRE0)));
+    UCSR0B &= (1<<TXB80);
+    UDR0 = c;
 }
 
 
@@ -128,6 +137,9 @@ int main(void) {
       * PD7 NC
       *
       * We're not un-scrambling the rows here, we are just using them directly to index the lookup table.
+      *
+      * The device outputs 9N1 (!) data on its uart. The 9th bit indicates key press (1) or release (0), the remaining 8
+      * bits the USB HID keycode.
       */
     DDRB   = 0x0f; /* row outputs, shift */
 
@@ -135,7 +147,7 @@ int main(void) {
     DDRD  |= 0x02;
     UBRR0  = F_CPU/16/(BAUDRATE-1);
     UCSR0B = (1<<TXEN0);
-    UCSR0C = (3<<UCSZ00);
+    UCSR0C = (7<<UCSZ00);
 
     int ridx = 0;
     reset_row();
@@ -146,16 +158,22 @@ int main(void) {
         if (ridx == 30)
             cols |= (PINB&1)<<1; /* map hard shift to keycode 0x1f (31) */
         while (cidx < ridx+10) {
-            if (keystate[cidx]&0x80) {
+            if (keystate[cidx] > 1) {
                 keystate[cidx]--;
+            } else if (keystate[cidx] < 0) {
+                keystate[cidx]++;
             } else {
+                uint8_t c = keymap[cidx];
                 if (cols & 1) {
                     if (!keystate[cidx]) {
-                        keystate[cidx] = 0x80 | DEBOUNCE_TIME;
-                        report(cidx);
+                        keystate[cidx] = DEBOUNCE_TIME;
+                        report_down(c);
                     }
                 } else {
-                    keystate[cidx] = 0;
+                    if (keystate[cidx]) {
+                        keystate[cidx] = -DEBOUNCE_TIME;
+                        report_up(c);
+                    }
                 }
             }
             cidx ++;
