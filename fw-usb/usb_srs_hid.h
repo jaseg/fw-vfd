@@ -26,10 +26,10 @@
 #include <avr/io.h>
 #include <stdint.h>
 
-extern volatile uint8_t ep1_buf[64]; /* TODO about 8 bytes should be sufficient here. Check USB FIFO handling and call sites. */
+extern volatile uint8_t ep1_buf[16]; /* TODO about 8 bytes should be sufficient here. Check USB FIFO handling and call sites. */
 extern volatile uint8_t ep1_cnt;
 
-extern volatile uint8_t ep2_buf[64];
+extern volatile uint8_t ep2_buf[16];
 extern volatile uint8_t ep2_cnt;
 
 extern volatile uint8_t ep3_buf[64];
@@ -44,6 +44,6 @@ void usb_send_descriptor(const uint8_t *d, uint8_t len);
 
 void usb_ep0_setup(void);
 void usb_ep_in(volatile uint8_t *buf, volatile uint8_t *count);
-void usb_ep_out(volatile uint8_t *buf, volatile uint8_t *count, uint8_t size);
+void usb_ep_out(volatile uint8_t *buf, volatile uint8_t *count);
 
 #endif

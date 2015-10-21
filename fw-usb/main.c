@@ -42,7 +42,7 @@ void key_down(uint8_t mod, uint8_t code) {
      * just ignore any additional keys pressed. */
 }
 
-void key_release(uint8_t mod, uint8_t code) {
+void key_up(uint8_t mod, uint8_t code) {
     uint8_t i;
 
     ep1_buf[0] = mod; /* modifiers */
@@ -60,6 +60,12 @@ void key_release(uint8_t mod, uint8_t code) {
     }
 }
 
+void virt_uart_tx(const char *s, uint8_t len) {
+    memcpy(ep3_buf, s, len);
+    ep3_cnt = len;
+    while (ep3_cnt);
+}
+
 int main(void) {
     DDRD |= 0x30;
 
@@ -70,9 +76,17 @@ int main(void) {
 
     while(23) {
         PORTD ^= 0x10;
-        char *s = "foobar\r\n";
-        strcpy(ep3_buf, s);
-        ep3_cnt = strlen(s);
+/*        if (ep4_cnt) {
+            const char *s = "Your input: ";
+            virt_uart_tx(s, strlen(s));
+            virt_uart_tx(ep4_buf, ep4_cnt);
+            virt_uart_tx("\r\n", 2);
+            ep4_cnt = 0;
+        }
+*/
         _delay_ms(1000);
+        key_down(0, 0x04);
+        _delay_ms(100);
+        key_up(0, 0x04);
     }
 }

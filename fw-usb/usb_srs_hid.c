@@ -28,10 +28,10 @@
 #define UNUSED(x) (void)(x)
 
 
-volatile uint8_t ep1_buf[64]; /* TODO about 8 bytes should be sufficient here. Check USB FIFO handling and call sites. */
+volatile uint8_t ep1_buf[16]; /* TODO about 8 bytes should be sufficient here. Check USB FIFO handling and call sites. */
 volatile uint8_t ep1_cnt;
 
-volatile uint8_t ep2_buf[64];
+volatile uint8_t ep2_buf[16];
 volatile uint8_t ep2_cnt;
 
 volatile uint8_t ep3_buf[64];
@@ -63,7 +63,7 @@ ISR(USB_COM_vect) {
 
     if (UEINT&4) { /* ep 2 */
         UENUM = 2;
-        usb_ep_out(ep2_buf, &ep2_cnt, sizeof(ep2_buf));
+        usb_ep_out(ep2_buf, &ep2_cnt);
     }
 
     if (UEINT&8) { /* ep 3 */
@@ -73,7 +73,7 @@ ISR(USB_COM_vect) {
 
     if (UEINT&16) { /* ep 4 */
         UENUM = 4;
-        usb_ep_out(ep4_buf, &ep4_cnt, sizeof(ep4_buf));
+        usb_ep_out(ep4_buf, &ep4_cnt);
     }
 }
 
@@ -160,7 +160,7 @@ static const uint8_t PROGMEM conf_des[] = {
     0x05,       // bDescriptorType: Endpoint
     0x81,       // bEndpointAddress: IN
     0x03,       // bmAttributes: Interrupt
-    64, 0,      // wMaxPacketSize
+    32, 0,      // wMaxPacketSize
     1,          // bInterval: [ms]
 
     /* ep 2 */
@@ -168,7 +168,7 @@ static const uint8_t PROGMEM conf_des[] = {
     0x05,       // bDescriptorType: Endpoint
     0x02,       // bEndpointAddress: OUT
     0x03,       // bmAttributes: Interrupt
-    64, 0,      // wMaxPacketSize
+    32, 0,      // wMaxPacketSize
     1,          // bInterval: [ms]
 
     /* interface 1: ACM control */
@@ -187,7 +187,7 @@ static const uint8_t PROGMEM conf_des[] = {
     0x05,       // bDescriptorType: Endpoint
     0x81,       // bEndpointAddress: IN
     0x03,       // bmAttributes: Interrupt
-    64, 0,      // wMaxPacketSize
+    32, 0,      // wMaxPacketSize
     1,          // bInterval: [ms]
 
     /* CDC header */
@@ -234,7 +234,7 @@ static const uint8_t PROGMEM conf_des[] = {
     0x05,       // bDescriptorType: Endpoint
     0x83,       // bEndpointAddress: IN
     0x02,       // bmAttributes: Bulk
-    64, 0,      // wMaxPacketSize
+    32, 0,      // wMaxPacketSize
     0,          // bInterval (ignored here)
 
     /* ep 4 */
@@ -242,7 +242,7 @@ static const uint8_t PROGMEM conf_des[] = {
     0x05,       // bDescriptorType: Endpoint
     0x04,       // bEndpointAddress: OUT
     0x02,       // bmAttributes: Bulk
-    64, 0,      // wMaxPacketSize
+    32, 0,      // wMaxPacketSize
     0           // bInterval (ignored here)
 };
 
@@ -400,11 +400,14 @@ void usb_ep0_setup(void) {
             UECFG1X &= ~(1<<ALLOC);
         }
 
-        usb_init_endpoint(1, 3, 1, 3, 0); /* interrupt in, 64 bytes, 1 bank */
-        usb_init_endpoint(2, 3, 0, 3, 0); /* interrupt out, 64 bytes, 1 bank */
+        usb_init_endpoint(1, 3, 1, 1, 0); /* interrupt in, 16 bytes, 1 bank */
+        UEIENX |= (1<<TXINE);
+        usb_init_endpoint(2, 3, 0, 1, 0); /* interrupt out, 16 bytes, 1 bank */
+        UEIENX |= (1<<RXOUTE);
         usb_init_endpoint(3, 2, 1, 3, 0); /* bulk in, 64 bytes, 1 bank */
-        UEIENX |= (1<<NAKINE);
+        UEIENX |= (1<<TXINE);
         usb_init_endpoint(4, 2, 0, 3, 0); /* bulk out, 64 bytes, 1 bank */
+        UEIENX |= (1<<RXOUTE);
 
         UENUM   = 0;
         UEINTX &= ~(1<<TXINI); // sende ZLP (Erfolg, löscht EP-Bank)
@@ -463,7 +466,7 @@ void usb_send_descriptor(const uint8_t *d, uint8_t len) {
         UEINTX &= ~(1<<TXINI);
     }
 
-    if (oldlen&0x7 == 0 && !(UEINTX & (1<<NAKOUTI))) {
+    if (((oldlen&0x7) == 0) && !(UEINTX & (1<<NAKOUTI))) {
         while (!(UEINTX & (1<<TXINI)))
             ; /* wait */
         UEINTX &= ~(1<<TXINI);
@@ -477,11 +480,6 @@ void usb_send_descriptor(const uint8_t *d, uint8_t len) {
 }
 
 void usb_ep_in(volatile uint8_t *buf, volatile uint8_t *count) {
-    if (!(UEINTX & (1<<NAKINI)))
-        return;
-    UEINTX &= ~(1<<NAKINI);
-    /* host requests data */
-
     if (!(UEINTX & (1<<TXINI)))
         return;
     UEINTX &= ~(1<<TXINI);
@@ -494,15 +492,15 @@ void usb_ep_in(volatile uint8_t *buf, volatile uint8_t *count) {
     UEINTX &= ~(1<<FIFOCON); /* release fifo */
 }
 
-void usb_ep_out(volatile uint8_t *buf, volatile uint8_t *count, uint8_t size) {
-    if (!(UEINTX & (1<<RXOUTI))) /* host did not send data */
+void usb_ep_out(volatile uint8_t *buf, volatile uint8_t *count) {
+    if (!(UEINTX & (1<<RXOUTI)))
         return;
     UEINTX &= ~(1<<RXOUTI); /* send ACK */
 
-    uint8_t i = 0;
-    while ((i < size) && (UEINTX & (1<<RWAL)))
-        buf[i++] = UEDATX;
-    *count = i;
+    uint8_t i = UEBCLX, n = i;
+    while (i--)
+        *buf++ = UEDATX;
+    *count = n;
 
     UEINTX &= ~(1<<FIFOCON); /* release fifo */
 }
