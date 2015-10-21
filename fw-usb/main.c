@@ -76,17 +76,13 @@ int main(void) {
 
     while(23) {
         PORTD ^= 0x10;
-/*        if (ep4_cnt) {
+        if (ep4_cnt) {
             const char *s = "Your input: ";
             virt_uart_tx(s, strlen(s));
             virt_uart_tx(ep4_buf, ep4_cnt);
             virt_uart_tx("\r\n", 2);
             ep4_cnt = 0;
         }
-*/
-        _delay_ms(1000);
-        key_down(0, 0x04);
         _delay_ms(100);
-        key_up(0, 0x04);
     }
 }
