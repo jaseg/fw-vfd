@@ -303,17 +303,6 @@ static const uint8_t PROGMEM rep_des[] = {
     0xC0        // End_Collection
 };
 
-static const struct {
-    const uint8_t *desc;
-    uint8_t size;
-} descs[NUM_DESCS] = {
-    [Lang_i] = {.desc=lang_des, .size=sizeof(lang_des)},
-    [Prod_i] = {.desc=prod_des, .size=sizeof(prod_des)},
-    [Manu_i] = {.desc=manu_des, .size=sizeof(manu_des)},
-    [Seri_i] = {.desc=seri_des, .size=sizeof(seri_des)}
-};
-
-
 void usb_ep0_setup(void) {
     uint8_t bmRequestType;
     uint8_t bRequest;
@@ -337,116 +326,128 @@ void usb_ep0_setup(void) {
 
     UEINTX &= ~(1<<RXSTPI); /* transmit ACK */
 
-    if (wIndex_h) { /* sanity check, we only have less than 256 interfaces. */
-        UECONX |= (1<<STALLRQ);
-        return;
-    }
+//    if (wIndex_h) { /* sanity check, we only have less than 256 interfaces. */
+//        UECONX |= (1<<STALLRQ);
+//        return;
+//    }
 
-    if (wIndex_l) { /* one of the CDC interfaces (control/data) is adressed */
-        switch (bRequest) {
-        case 0x20: /* CDC ACM set line coding */
-            UEINTX &= ~(1<<TXINI); /* transmit ACK */
+    switch (bRequest) {
+    case 0x00: /* GET_STATUS (3-phase) FIXME is handling of this necessary? */
+        UEDATX  = 0;
+        UEDATX  = 0;
+        UEINTX &= ~(1<<TXINI); /* transmit ACK */
+        while (!(UEINTX & (1 << RXOUTI)))
+            ; /* wait for ZLP */
+        UEINTX &= ~(1<<RXOUTI);
+        break;
+
+    case 0x05: /* SET_ADDRESS (2-phase; no data phase) */
+        UDADDR  = (wValue_l & 0x7F);
+        UEINTX &= ~(1<<TXINI); /* transmit ZLP */
+        while (!(UEINTX & (1 << TXINI)))
+            ; /* wait for bank release */
+        UDADDR |= (1<<ADDEN);
+        break;
+
+    case 0x06: /* GET_DESCRIPTOR (3-phase transfer) */
+        switch (wValue_h) {
+        case 1: /* device */
+            usb_send_descriptor(dev_des, sizeof(dev_des));
             break;
+
+        case 2: /* configuration */
+            /* Manchmal erfragt Windows unsinnig hohe Werte (groesser als
+             * 256 Byte). Dadurch steht dann im Lowbyte ev. ein falscher
+             * Wert Es wird hier davon ausgegangen, dass nicht mehr als 256
+             * Byte angefragt werden können. */
+            if (wLength_h || (wLength_l > sizeof(conf_des)) || !wLength_l)
+                wLength_l = sizeof(conf_des);
+            usb_send_descriptor(conf_des, wLength_l);
+            break;
+
+        case 3: /* string */
+            switch (wValue_l) {
+                case 0:
+                    usb_send_descriptor(lang_des, sizeof(lang_des));
+                    break;
+                case 1:
+                    usb_send_descriptor(prod_des, sizeof(prod_des));
+                    break;
+                case 2:
+                    usb_send_descriptor(manu_des, sizeof(manu_des));
+                    break;
+                case 3:
+                    usb_send_descriptor(seri_des, sizeof(seri_des));
+                    break;
+            }
+            break;
+
+        case 34: /* HID report */
+            usb_send_descriptor(rep_des, (wLength_l > sizeof(rep_des)) ? sizeof(rep_des) : wLength_l);
+            break;
+
         default:
-            UECONX |= (1<<STALLRQ);
             break;
         }
-    } else {
-        switch (bRequest) {
-        case 0x00: /* GET_STATUS (3-phase) FIXME is handling of this necessary? */
-            UEDATX  = 0;
-            UEDATX  = 0;
-            UEINTX &= ~(1<<TXINI); /* transmit ACK */
-            while (!(UEINTX & (1 << RXOUTI)))
-                ; /* wait for ZLP */
-            UEINTX &= ~(1<<RXOUTI);
-            break;
+        break;
 
-        case 0x05: /* SET_ADDRESS (2-phase; no data phase) */
-            UDADDR  = (wValue_l & 0x7F);
-            UEINTX &= ~(1<<TXINI); /* transmit ZLP */
-            while (!(UEINTX & (1 << TXINI)))
-                ; /* wait for bank release */
-            UDADDR |= (1<<ADDEN);
-            break;
+    case 0x09: /* SET_CONFIGURATION (2-phase; no data phase) */
+        for (uint8_t i=4; i; i--) { /* backwards due to memory assignment */
+            UENUM    = i;
+            UECONX  &= ~(1<<EPEN);
+            UECFG1X &= ~(1<<ALLOC);
+        }
 
-        case 0x06: /* GET_DESCRIPTOR (3-phase transfer) */
-            switch (wValue_h) {
-            case 1: /* device */
-                usb_send_descriptor(dev_des, sizeof(dev_des));
-                break;
+        usb_init_endpoint(1, 3, 1, 3, 0); /* interrupt in, 64 bytes, 1 bank */
+        usb_init_endpoint(2, 3, 0, 3, 0); /* interrupt out, 64 bytes, 1 bank */
+        usb_init_endpoint(3, 2, 1, 3, 0); /* bulk in, 64 bytes, 1 bank */
+        usb_init_endpoint(4, 2, 0, 3, 0); /* bulk out, 64 bytes, 1 bank */
 
-            case 2: /* configuration */
-                /* Manchmal erfragt Windows unsinnig hohe Werte (groesser als
-                 * 256 Byte). Dadurch steht dann im Lowbyte ev. ein falscher
-                 * Wert Es wird hier davon ausgegangen, dass nicht mehr als 256
-                 * Byte angefragt werden können. */
-                if (wLength_h || (wLength_l > sizeof(conf_des)) || !wLength_l)
-                    wLength_l = sizeof(conf_des);
-                usb_send_descriptor(conf_des, wLength_l);
-                break;
-
-            case 3: /* string */
-                if (wValue_l < NUM_DESCS)
-                    usb_send_descriptor(descs[wValue_l].desc, (wLength_l < descs[wValue_l].size) ? wLength_l : descs[wValue_l].size);
-                break;
-
-            case 34: /* HID report */
-                usb_send_descriptor(rep_des, (wLength_l > sizeof(rep_des)) ? sizeof(rep_des) : wLength_l);
-                break;
-
-            default:
-                break;
-            }
-            break;
-
-        case 0x09: /* SET_CONFIGURATION (2-phase; no data phase) */
-            for (uint8_t i=4; i; i--) { /* backwards due to memory assignment */
-                UENUM    = i;
-                UECONX  &= ~(1<<EPEN);
-                UECFG1X &= ~(1<<ALLOC);
-            }
-
-            usb_init_endpoint(1, 3, 1, 3, 0); /* interrupt in, 64 bytes, 1 bank */
-            usb_init_endpoint(2, 3, 0, 3, 0); /* interrupt out, 64 bytes, 1 bank */
-            usb_init_endpoint(3, 2, 1, 3, 0); /* bulk in, 64 bytes, 1 bank */
-            usb_init_endpoint(4, 2, 0, 3, 0); /* bulk out, 64 bytes, 1 bank */
-
-            UEIENX |= (1<<NAKINE);
-            UEIENX |= (1<<RXOUTE);
+//            UEIENX |= (1<<RXOUTE);
 // FIXME needed?            UEIENX |= (1<<TXINE);
 
-            UENUM   = 0;
-            UEINTX &= ~(1<<TXINI); // sende ZLP (Erfolg, löscht EP-Bank)
-            while (!(UEINTX & (1 << TXINI)))
-                ;
-            break;
+        UENUM   = 0;
+        UEINTX &= ~(1<<TXINI); // sende ZLP (Erfolg, löscht EP-Bank)
+        while (!(UEINTX & (1 << TXINI)))
+            ;
+        break;
 
-        default:
-            UECONX |= (1<<STALLRQ);
-            break;
-        }
+    case 0x20: /* CDC ACM set line coding */
+    default:
+        UECONX |= (1<<STALLRQ);
+        break;
     }
 }
 
 void usb_send_descriptor(const uint8_t *d, uint8_t len) {
+    uint8_t oldlen = len;
+
     while (len) {
-        if (UEINTX & (1<<RXOUTI))
-            break; /* host wants to cancel */
+        while (!(UEINTX & (1<<TXINI)))
+            if (UEINTX & (1<<NAKOUTI))
+                break; /* host wants to cancel */
 
         uint8_t j = (len > 8 ? 8 : len);
         while (j--)
             UEDATX = pgm_read_byte(d++);
         len = (len > 8) ? len-8 : 0;
 
+        if (UEINTX & (1<<NAKOUTI))
+            break;
+
         UEINTX &= ~(1<<TXINI);
-        while (!(UEINTX & ((1<<RXOUTI) | (1<<TXINI))))
-            ; /* wait for bank release or host ack */
     }
 
-    while (!(UEINTX & (1<<RXOUTI)))
+    if (oldlen&0x7 == 0 && !(UEINTX & (1<<NAKOUTI))) {
+        while (!(UEINTX & (1<<TXINI)))
+            ; /* wait */
+        UEINTX &= ~(1<<TXINI);
+    }
+
+    while (!(UEINTX & (1<<NAKOUTI)))
         ; /* wait for host ack */
 
+    UEINTX &= ~(1<<NAKOUTI);
     UEINTX &= ~(1<<RXOUTI);
 }
 

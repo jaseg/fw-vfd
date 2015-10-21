@@ -73,17 +73,5 @@ int main(void) {
         i++;
         if (!i)
             PORTD ^= 0x10;
-        if (ep4_cnt > 0) {
-            memcpy(ep3_buf, ep4_buf, ep4_cnt);
-            ep3_cnt = ep4_cnt;
-            ep4_cnt = 0;
-
-            UENUM = 3;
-            uint8_t n = ep3_cnt;
-            for (int i=0; i<n; i++)
-                UEDATX = ep3_buf[i];
-
-            UEINTX &= ~(1<<FIFOCON); /* release fifo */
-        }
     }
 }

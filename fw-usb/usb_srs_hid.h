@@ -38,14 +38,6 @@ extern volatile uint8_t ep3_cnt;
 extern volatile uint8_t ep4_buf[64];
 extern volatile uint8_t ep4_cnt;
 
-typedef enum {
-    Lang_i, /* language descriptor */
-    Prod_i, /* product name */
-    Manu_i, /* manufacturer name */
-    Seri_i, /* serial */
-    NUM_DESCS
-} desc_index_enum;
-
 void usb_init_device(void);
 void usb_init_endpoint(uint8_t ep, uint8_t type, uint8_t direction, uint8_t size, uint8_t banks);
 void usb_send_descriptor(const uint8_t *d, uint8_t len);
