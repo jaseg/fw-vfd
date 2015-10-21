@@ -68,10 +68,11 @@ int main(void) {
     sei();
     PORTD |= 0x20;
 
-    uint16_t i;
     while(23) {
-        i++;
-        if (!i)
-            PORTD ^= 0x10;
+        PORTD ^= 0x10;
+        char *s = "foobar\r\n";
+        strcpy(ep3_buf, s);
+        ep3_cnt = strlen(s);
+        _delay_ms(1000);
     }
 }
