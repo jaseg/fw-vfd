@@ -112,6 +112,48 @@ void virt_uart_tx(const char *s, uint8_t len) {
     while (ep3_cnt);
 }
 
+char hexnibble(uint8_t f) {
+    if (f<10)
+        return f+'0';
+    else
+        return f-0xa+'a';
+}
+
+void type(char c) {
+    uint8_t k = 0;
+    if (c == '0')
+        k = 0x27;
+    else if ('1' <= c && c <= '9')
+        k = 0x1e + c-'1';
+    else if ('a' <= c && c <= 'f')
+        k = 0x04 + c - 'a';
+    else if (c == ' ')
+        k = 0x2c;
+    else if (c == ';')
+        k = 0x33;
+    else
+        return;
+    key_down(k);
+    _delay_ms(20);
+    key_up(k);
+    _delay_ms(20);
+}
+
+void hid_dump(const uint8_t a, const uint8_t b, const uint8_t c, const uint8_t d) {
+    type(hexnibble(a&0xf));
+    type(hexnibble(a>>4));
+    type(' ');
+    type(hexnibble(b&0xf));
+    type(hexnibble(b>>4));
+    type(' ');
+    type(hexnibble(c&0xf));
+    type(hexnibble(c>>4));
+    type(' ');
+    type(hexnibble(d&0xf));
+    type(hexnibble(d>>4));
+    type(';');
+}
+
 int main(void) {
     DDRD  |= 0x30; /* Arduino TX/RX LEDs, active low */
     PORTD |= 0x20; /* TX LED */
@@ -120,8 +162,8 @@ int main(void) {
      * the remaining 8 bits the USB HID keycode. */
     DDRD  |= 0x08;
     UBRR1  = F_CPU/16/(BAUDRATE-1);
-    UCSR1B = (1<<RXEN1) | (1<<TXEN1);
-    UCSR1C = (7<<UCSZ10);
+    UCSR1B = (1<<RXEN1);
+    UCSR1C = (7<<UCSZ10) | (1<<USBS1);
 
     usb_init_device();
     memset((void *)ep1_buf, 0, sizeof(ep1_buf));
@@ -134,11 +176,27 @@ int main(void) {
         if (!(st & (1<<RXC1)))
             continue;
         PORTD ^= 0x10; /* RX LED */
-        if (st & ((1<<FE1) | (1<<DOR1) | (1<<UPE1))) /* some kind of error */
-            continue;
-        if (UCSR1B & (1<<RXB81))
-            key_down(UDR1);
-        else
-            key_up(UDR1);
+        uint8_t b = UCSR1B;
+        uint8_t c = UCSR1C;
+        hid_dump(st, b, c, UDR1);
+/*        uint8_t _bar = UCSR1B;
+        PORTD &= ~0x20;
+        PORTD |= (_bar & 0x02) ? 0 : 0x20;
+        uint8_t _foo = UDR1;
+        key_down(_foo);
+        _delay_ms(100);
+        key_up(_foo);
+        _delay_ms(1000);
+        */
+        continue;
+//        if (st & ((1<<FE1) | (1<<DOR1) | (1<<UPE1))) /* some kind of error */
+//            continue;
+        if (UCSR1B & (1<<RXB81)) {
+            uint8_t _foo = UDR1;
+            key_down(0x04);
+        } else {
+            uint8_t _foo = UDR1;
+            key_up(0x04);
+        }
     }
 }

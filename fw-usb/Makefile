@@ -1,7 +1,7 @@
 
 MCU 	 = atmega8u2
 F_CPU  	 = 16000000
-BAUDRATE = 9600
+BAUDRATE = 250000
 
 CFLAGS := -mmcu=$(MCU) -DF_CPU=$(F_CPU)UL -DBAUDRATE=$(BAUDRATE) -O2 -std=gnu99 -Wall -funsigned-char -funsigned-bitfields -fpack-struct -fshort-enums
 

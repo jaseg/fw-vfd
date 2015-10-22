@@ -102,7 +102,7 @@ void report_down (uint8_t c) {
 
 void report_up (uint8_t c) {
     while (!(UCSR0A & (1<<UDRE0)));
-    UCSR0B &= (1<<TXB80);
+    UCSR0B &= ~(1<<TXB80);
     UDR0 = c;
 }
 
@@ -147,7 +147,7 @@ int main(void) {
     DDRD  |= 0x02;
     UBRR0  = F_CPU/16/(BAUDRATE-1);
     UCSR0B = (1<<TXEN0);
-    UCSR0C = (7<<UCSZ00);
+    UCSR0C = (7<<UCSZ00) | (1<<USBS0);
 
     int ridx = 0;
     reset_row();
