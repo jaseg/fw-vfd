@@ -161,7 +161,7 @@ static const uint8_t PROGMEM conf_des[] = {
     0x81,       // bEndpointAddress: IN
     0x03,       // bmAttributes: Interrupt
     32, 0,      // wMaxPacketSize
-    1,          // bInterval: [ms]
+    20,         // bInterval: [ms]
 
     /* ep 2 */
     7,          // bLength
@@ -169,7 +169,7 @@ static const uint8_t PROGMEM conf_des[] = {
     0x02,       // bEndpointAddress: OUT
     0x03,       // bmAttributes: Interrupt
     32, 0,      // wMaxPacketSize
-    1,          // bInterval: [ms]
+    20,         // bInterval: [ms]
 
     /* interface 1: ACM control */
     9,          // bLength
@@ -188,7 +188,7 @@ static const uint8_t PROGMEM conf_des[] = {
     0x81,       // bEndpointAddress: IN
     0x03,       // bmAttributes: Interrupt
     32, 0,      // wMaxPacketSize
-    1,          // bInterval: [ms]
+    0,          // bInterval (ignored here)
 
     /* CDC header */
     0x05,       // bFunctionLength
@@ -422,10 +422,10 @@ void usb_ep0_setup(void) {
         if (wIndex_h || wIndex_l != 0x01) /* Something else than ACM control interface adressed */
             break;
 
-        while (!(UEINTX & (1<<RXOUTI)));
-        UEINTX &= ~(1<<RXOUTI);
-        while (!(UEINTX & (1<<RXOUTI)));
-        UEINTX &= ~(1<<RXOUTI);
+//        while (!(UEINTX & (1<<RXOUTI)));
+//        UEINTX &= ~(1<<RXOUTI);
+//        while (!(UEINTX & (1<<RXOUTI)));
+//        UEINTX &= ~(1<<RXOUTI);
         while (!(UEINTX & (1<<TXINI)));
         UEINTX &= ~(1<<TXINI);
         break;

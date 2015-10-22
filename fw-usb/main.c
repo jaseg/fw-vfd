@@ -129,16 +129,6 @@ int main(void) {
     sei();
 
     while(23) {
-        ep3_buf[0] = 'f';
-        ep3_buf[1] = 'o';
-        ep3_buf[2] = 'o';
-        ep3_buf[3] = 'b';
-        ep3_buf[4] = 'a';
-        ep3_buf[5] = 'r';
-        ep3_buf[6] = '\n';
-        ep3_cnt = 7;
-        _delay_ms(1000);
-        continue;
         if (ep4_cnt) {
             PORTD ^= 0x20; /* TX LED */
             uint8_t i=ep4_cnt;
