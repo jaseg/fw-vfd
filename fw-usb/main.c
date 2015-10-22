@@ -122,7 +122,7 @@ int main(void) {
     UBRR1  = F_CPU/16/(BAUDRATE-1);
     UCSR1A = 0x00;
     UCSR1B = (1<<RXEN1) | (1<<TXEN1) | (1<<UCSZ12);
-    UCSR1C = (1<<UCSZ11) | (1<<UCSZ10) | (1<<USBS1) | (1<<UPM11);
+    UCSR1C = (1<<UCSZ11) | (1<<UCSZ10);
 
     usb_init_device();
     memset((void *)ep1_buf, 0, sizeof(ep1_buf));
@@ -137,7 +137,9 @@ int main(void) {
                 while (!(UCSR1A & (1<<UDRE1)));
                 UDR1 = *b++;
             }
+            ep4_cnt = 0;
         }
+
         uint8_t st = UCSR1A;
         if (!(st & (1<<RXC1)))
             continue;

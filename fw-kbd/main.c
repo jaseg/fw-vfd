@@ -147,7 +147,7 @@ int main(void) {
     DDRD  |= 0x02;
     UBRR0  = F_CPU/16/(BAUDRATE-1);
     UCSR0B = (1<<TXEN0) | (1<<UCSZ02);
-    UCSR0C = (1<<UCSZ01) | (1<<UCSZ00) | (1<<USBS0) | (1<<UPM01);
+    UCSR0C = (1<<UCSZ01) | (1<<UCSZ00);
 
     int ridx = 0;
     reset_row();
