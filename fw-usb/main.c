@@ -121,7 +121,7 @@ int main(void) {
     DDRD  |= 0x08;
     UBRR1  = F_CPU/16/(BAUDRATE-1);
     UCSR1A = 0x00;
-    UCSR1B = (1<<RXEN1) | (1<<UCSZ12);
+    UCSR1B = (1<<RXEN1) | (1<<TXEN1) | (1<<UCSZ12);
     UCSR1C = (1<<UCSZ11) | (1<<UCSZ10) | (1<<USBS1) | (1<<UPM11);
 
     usb_init_device();
@@ -129,8 +129,25 @@ int main(void) {
     sei();
 
     while(23) {
-//        if (ep4_cnt) {
-//        }
+        ep3_buf[0] = 'f';
+        ep3_buf[1] = 'o';
+        ep3_buf[2] = 'o';
+        ep3_buf[3] = 'b';
+        ep3_buf[4] = 'a';
+        ep3_buf[5] = 'r';
+        ep3_buf[6] = '\n';
+        ep3_cnt = 7;
+        _delay_ms(1000);
+        continue;
+        if (ep4_cnt) {
+            PORTD ^= 0x20; /* TX LED */
+            uint8_t i=ep4_cnt;
+            uint8_t *b=ep4_buf;
+            while (i--) {
+                while (!(UCSR1A & (1<<UDRE1)));
+                UDR1 = *b++;
+            }
+        }
         uint8_t st = UCSR1A;
         if (!(st & (1<<RXC1)))
             continue;

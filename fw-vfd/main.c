@@ -32,19 +32,6 @@ void set_led(led_t led, uint8_t val) {
 }
 
 
-char to_hex(uint8_t nibble) {
-    if (nibble < 0xa)
-        return '0'+nibble;
-    else
-        return 'a'+(nibble-0xa);
-}
-
-void uart_putc(char c) {
-    while (!(UCSRA & (1<<UDRE)));
-    UDR = c;
-}
-
-
 void mux_pulse(uint8_t output) {
     PORTC |= output;
     PORTB &= ~0x04;
@@ -184,9 +171,8 @@ int main(void) {
     uint16_t ubrr_val = F_CPU/16/(BAUDRATE-1);
     UBRRH  = ubrr_val>>8;
     UBRRL  = ubrr_val&0xff;
-    UCSRB = (1<<TXEN) | (1<<RXEN) | (1<<RXCIE);
-    UCSRC = (1<<URSEL) | (7<<UCSZ0);
-
+    UCSRB = (1<<RXEN) | (1<<UCSZ2) | (1<<RXCIE);
+    UCSRC = (1<<URSEL) | (1<<UCSZ1) | (1<<UCSZ0) | (1<<USBS) | (1<<UPM1);
     sei();
 
     while (23) {
